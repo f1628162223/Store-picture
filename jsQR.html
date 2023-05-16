@@ -6,104 +6,90 @@
 	<script src="./jsQR.js"></script>
 	<link href="https://fonts.googleapis.com/css?family=Ropa+Sans" rel="stylesheet">
 	<style>
+		* {
+			margin: 0;
+			padding: 0;
+			box-sizing: border-box;
+		}
+
+		html,
 		body {
-			font-family: 'Ropa Sans', sans-serif;
-			color: #333;
-			max-width: 640px;
-			margin: 0 auto;
-			position: relative;
-		}
-
-		#githubLink {
-			position: absolute;
-			right: 0;
-			top: 12px;
-			color: #2D99FF;
-		}
-
-		h1 {
-			margin: 10px 0;
-			font-size: 40px;
+			width: 100%;
+			height: 100%;
 		}
 
 		#loadingMessage {
-			text-align: center;
-			padding: 40px;
-			background-color: #eee;
+			width: 100%;
+			position: absolute;
+			z-index: 1;
+			font-size: 40px;
 		}
 
 		#canvas {
+			position: absolute;
+			top: 0;
+			left: 0;
+			right: 0;
+			bottom: 0;
 			width: 100%;
-		}
+			height: 100%;
 
-		#output {
-			margin-top: 20px;
-			background: #eee;
-			padding: 10px;
-			padding-bottom: 0;
-		}
-
-		#output div {
-			padding-bottom: 10px;
-			word-wrap: break-word;
-		}
-
-		#noQRFound {
-			text-align: center;
 		}
 	</style>
 </head>
 
 <body>
-	<h1>jsQR 测试</h1>
 	<div id="loadingMessage">无法访问视频流(请确保您已启用网络摄像头)</div>
 	<canvas id="canvas" hidden></canvas>
 
 	<script>
-		var video = document.createElement("video");
-		var canvasElement = document.getElementById("canvas");
-		var canvas = canvasElement.getContext("2d");
-		var loadingMessage = document.getElementById("loadingMessage");
+		var video = document.createElement("video"); // 创建一个 video 元素
+		var canvasElement = document.getElementById("canvas"); // 获取 canvas 元素
+		var canvas = canvasElement.getContext("2d"); // 获取 canvas 上下文对象
+		var loadingMessage = document.getElementById("loadingMessage"); // 获取加载提示信息元素
 
-		function drawLine(begin, end, color) {
-			canvas.beginPath();
-			canvas.moveTo(begin.x, begin.y);
-			canvas.lineTo(end.x, end.y);
-			canvas.lineWidth = 4;
-			canvas.strokeStyle = color;
-			canvas.stroke();
+		function drawLine(begin, end, color) { // 画线函数，接受起点、终点、颜色三个参数
+			canvas.beginPath(); // 开始一条新路径
+			canvas.moveTo(begin.x, begin.y); // 移动到起点
+			canvas.lineTo(end.x, end.y); // 从起点画线到终点
+			canvas.lineWidth = 4; // 线条宽度为4
+			canvas.strokeStyle = color; // 线条颜色为传入的 color 参数
+			canvas.stroke(); // 绘制线条
 		}
 
-		navigator.mediaDevices.getUserMedia({ video: { facingMode: "environment" } }).then(function (stream) {
-			video.srcObject = stream;
-			video.setAttribute("playsinline", true);
-			video.play();
-			requestAnimationFrame(tick);
-		});
+		navigator.mediaDevices.getUserMedia({ video: { facingMode: "environment" } }) // 获取摄像头数据流
+			.then(function (stream) { // 成功获取数据流后的回调函数
+				video.srcObject = stream; // 将数据流绑定到 video 元素上
+				video.setAttribute("playsinline", true); // 设置 video 在页面中以行内元素方式播放
+				video.play(); // 播放视频流
+				requestAnimationFrame(tick); // 开始读取视频流数据
+			});
 
-		function tick() {
-			loadingMessage.innerText = "⌛ Loading video..."
-			if (video.readyState === video.HAVE_ENOUGH_DATA) {
-				loadingMessage.hidden = true;
-				canvasElement.hidden = false;
-
-				canvasElement.height = video.videoHeight;
-				canvasElement.width = video.videoWidth;
-				canvas.drawImage(video, 0, 0, canvasElement.width, canvasElement.height);
-				var imageData = canvas.getImageData(0, 0, canvasElement.width, canvasElement.height);
-				var code = jsQR(imageData.data, imageData.width, imageData.height, {
-					inversionAttempts: "dontInvert",
+		function tick() { // 每一帧的回调函数
+			loadingMessage.innerText = "加载中..."; // 更新加载提示信息
+			console.log(video.readyState === video.HAVE_ENOUGH_DATA); // 打印当前 video 元素的 readyState 属性
+			if (video.readyState === video.HAVE_ENOUGH_DATA) { // 如果视频流数据已准备就绪
+				loadingMessage.hidden = true; // 隐藏加载提示信息
+				canvasElement.hidden = false; // 显示 canvas 元素
+				canvasElement.height = video.videoHeight; // 设置 canvas 元素高度为视频流高度
+				canvasElement.width = video.videoWidth; // 设置 canvas 元素宽度为视频流宽度
+				canvas.drawImage(video, 0, 0, canvasElement.width, canvasElement.height); // 将视频流数据绘制到 canvas 元素上
+				var imageData = canvas.getImageData(0, 0, canvasElement.width, canvasElement.height); // 获取 canvas 元素中的图片数据
+				var code = jsQR(imageData.data, imageData.width, imageData.height, { // 解析二维码
+					inversionAttempts: "dontInvert", // 不进行颜色反转尝试
 				});
-				if (code) {
-					drawLine(code.location.topLeftCorner, code.location.topRightCorner, "#FF3B58");
-					drawLine(code.location.topRightCorner, code.location.bottomRightCorner, "#FF3B58");
-					drawLine(code.location.bottomRightCorner, code.location.bottomLeftCorner, "#FF3B58");
-					drawLine(code.location.bottomLeftCorner, code.location.topLeftCorner, "#FF3B58");
-					alert('扫码结果：' + code.data)
+				if (code) { // 如果解析成功
+					// drawLine(code.location.topLeftCorner, code.location.topRightCorner, "#FF3B58"); // 标记二维码位置
+					// drawLine(code.location.topRightCorner, code.location.bottomRightCorner, "#FF3B58");
+					// drawLine(code.location.bottomRightCorner, code.location.bottomLeftCorner, "#FF3B58");
+					// drawLine(code.location.bottomLeftCorner, code.location.topLeftCorner, "#FF3B58");
+					alert('扫码结果：' + code.data); // 显示解析出的二维码内容
 				}
 			}
-			requestAnimationFrame(tick);
+			requestAnimationFrame(tick); // 继续读取视频流数据
 		}
+
+
 	</script>
 </body>
 
