@@ -35,6 +35,89 @@
 			height: 100%;
 
 		}
+
+
+		#cover {
+			height: 220px;
+			width: 220px;
+			position: fixed;
+			top: 50%;
+			left: 50%;
+			transform: translate(-50%, -50%);
+			border: .5px solid #999999;
+			z-index: 99;
+		}
+
+		#cover .line {
+			width: 200px;
+			height: 1px;
+			margin-left: 10px;
+			background: #5F68E8;
+			background: linear-gradient(to right, transparent, #5F68E8, #0165FF, #5F68E8, transparent);
+			position: absolute;
+			animation: scan 1.75s infinite linear;
+			animation-fill-mode: both;
+			border-radius: 1px;
+		}
+
+		#cover .square {
+			display: inline-block;
+			height: 20px;
+			width: 20px;
+			position: absolute;
+		}
+
+		#cover .square.top {
+			top: 0;
+			border-top: 1px solid #5F68E8;
+		}
+
+		#cover .square.left {
+			left: 0;
+			border-left: 1px solid #5F68E8;
+		}
+
+		#cover .square.bottom {
+			bottom: 0;
+			border-bottom: 1px solid #5F68E8;
+		}
+
+		#cover .square.right {
+			right: 0;
+			border-right: 1px solid #5F68E8;
+		}
+
+		#cover .tips {
+			position: absolute;
+			bottom: -48px;
+			width: 100%;
+			font-size: 14px;
+			color: #FFFFFF;
+			opacity: 0.8;
+		}
+
+
+		@keyframes scan {
+			0% {
+				top: 0
+			}
+
+			25% {
+				top: 50px
+			}
+
+			50% {
+				top: 100px
+			}
+
+			75% {
+				top: 150px
+			}
+
+			100% {
+				top: 200px
+			}
+		}
 	</style>
 </head>
 
@@ -42,11 +125,22 @@
 	<div id="loadingMessage">22无法访问视频流(请确保您已启用网络摄像头)</div>
 	<canvas id="canvas" hidden></canvas>
 
+	<div id="cover" hidden>
+		<p class="line"></p>
+		<span class="square top left"></span>
+		<span class="square top right"></span>
+		<span class="square bottom right"></span>
+		<span class="square bottom left"></span>
+		<p class="tips">将二维码放入框内，即可自动扫描</p>
+	</div>
 	<script>
 		var video = document.createElement("video"); // 创建一个 video 元素
 		var canvasElement = document.getElementById("canvas"); // 获取 canvas 元素
 		var canvas = canvasElement.getContext("2d"); // 获取 canvas 上下文对象
 		var loadingMessage = document.getElementById("loadingMessage"); // 获取加载提示信息元素
+		var cover = document.getElementById("cover"); // 获取加载提示信息元素
+
+
 
 
 		navigator.mediaDevices.getUserMedia({ video: { facingMode: "environment" } }) // 获取摄像头数据流
@@ -61,6 +155,7 @@
 			loadingMessage.innerText = "加载中..."; // 更新加载提示信息
 			console.log(video.readyState === video.HAVE_ENOUGH_DATA); // 打印当前 video 元素的 readyState 属性
 			if (video.readyState === video.HAVE_ENOUGH_DATA) { // 如果视频流数据已准备就绪
+				cover.hidden = false
 				loadingMessage.hidden = true; // 隐藏加载提示信息
 				canvasElement.hidden = false; // 显示 canvas 元素
 				canvasElement.height = video.videoHeight; // 设置 canvas 元素高度为视频流高度
