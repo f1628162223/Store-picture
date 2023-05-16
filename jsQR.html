@@ -122,9 +122,10 @@
 </head>
 
 <body>
-	<div id="loadingMessage">33无法访问视频流(请确保您已启用网络摄像头)</div>
+	<div id="loadingMessage">44无法访问视频流(请确保您已启用网络摄像头)</div>
 	<canvas id="canvas" hidden></canvas>
 
+	<!-- cover 是扫码框  实际没用，只是让用户将摄像头居中用的 -->
 	<div id="cover" hidden>
 		<p class="line"></p>
 		<span class="square top left"></span>
@@ -134,13 +135,12 @@
 		<p class="tips">将二维码放入框内，即可自动扫描</p>
 	</div>
 	<script>
+		var isScanning = true;
 		var video = document.createElement("video"); // 创建一个 video 元素
 		var canvasElement = document.getElementById("canvas"); // 获取 canvas 元素
 		var canvas = canvasElement.getContext("2d"); // 获取 canvas 上下文对象
 		var loadingMessage = document.getElementById("loadingMessage"); // 获取加载提示信息元素
 		var cover = document.getElementById("cover"); // 获取加载提示信息元素
-
-
 
 
 		navigator.mediaDevices.getUserMedia({ video: { facingMode: "environment" } }) // 获取摄像头数据流
@@ -152,8 +152,11 @@
 			});
 
 		function tick() { // 每一帧的回调函数
+			if (!isScanning) {
+				return;
+			}
 			loadingMessage.innerText = "加载中..."; // 更新加载提示信息
-			console.log(video.readyState === video.HAVE_ENOUGH_DATA); // 打印当前 video 元素的 readyState 属性
+
 			if (video.readyState === video.HAVE_ENOUGH_DATA) { // 如果视频流数据已准备就绪
 				cover.hidden = false
 				loadingMessage.hidden = true; // 隐藏加载提示信息
@@ -167,9 +170,14 @@
 				});
 				if (code) { // 如果解析成功
 					alert('扫码结果：' + code.data); // 显示解析出的二维码内容
+					isScanning = false;
+					// ... 成功后跳转页面
+
+				} else { // 如果解析失败
+
 				}
 			}
-			requestAnimationFrame(tick); // 继续读取视频流数据
+			requestAnimationFrame(tick); // 循环 继续读取视频流数据 
 		}
 
 
