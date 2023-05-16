@@ -39,7 +39,7 @@
 </head>
 
 <body>
-	<div id="loadingMessage">无1法访问视频流(请确保您已启用网络摄像头)</div>
+	<div id="loadingMessage">22无法访问视频流(请确保您已启用网络摄像头)</div>
 	<canvas id="canvas" hidden></canvas>
 
 	<script>
@@ -48,14 +48,6 @@
 		var canvas = canvasElement.getContext("2d"); // 获取 canvas 上下文对象
 		var loadingMessage = document.getElementById("loadingMessage"); // 获取加载提示信息元素
 
-		function drawLine(begin, end, color) { // 画线函数，接受起点、终点、颜色三个参数
-			canvas.beginPath(); // 开始一条新路径
-			canvas.moveTo(begin.x, begin.y); // 移动到起点
-			canvas.lineTo(end.x, end.y); // 从起点画线到终点
-			canvas.lineWidth = 4; // 线条宽度为4
-			canvas.strokeStyle = color; // 线条颜色为传入的 color 参数
-			canvas.stroke(); // 绘制线条
-		}
 
 		navigator.mediaDevices.getUserMedia({ video: { facingMode: "environment" } }) // 获取摄像头数据流
 			.then(function (stream) { // 成功获取数据流后的回调函数
@@ -79,10 +71,6 @@
 					inversionAttempts: "dontInvert", // 不进行颜色反转尝试
 				});
 				if (code) { // 如果解析成功
-					// drawLine(code.location.topLeftCorner, code.location.topRightCorner, "#FF3B58"); // 标记二维码位置
-					// drawLine(code.location.topRightCorner, code.location.bottomRightCorner, "#FF3B58");
-					// drawLine(code.location.bottomRightCorner, code.location.bottomLeftCorner, "#FF3B58");
-					// drawLine(code.location.bottomLeftCorner, code.location.topLeftCorner, "#FF3B58");
 					alert('扫码结果：' + code.data); // 显示解析出的二维码内容
 				}
 			}
