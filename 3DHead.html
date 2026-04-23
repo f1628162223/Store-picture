@@ -1,69 +1,52 @@
 <!DOCTYPE html>
 <html lang="zh">
 <head>
-  <meta charset="UTF-8" />
-  <title>坐姿检测</title>
-  <style>
-    body {
-      margin: 0;
-      font-family: Arial, sans-serif;
-      background: #000;
-      color: #fff;
-      text-align: center;
-    }
+<meta charset="UTF-8">
+<title>坐姿检测修复版</title>
 
-    #container {
-      position: relative;
-      width: 100vw;
-      height: 100vh;
-      overflow: hidden;
-    }
+<style>
+body {
+    margin: 0;
+    background: #000;
+    overflow: hidden;
+    color: white;
+    font-family: sans-serif;
+}
 
-    video {
-      position: absolute;
-      top: 0;
-      left: 0;
-      width: 100%;
-      height: 100%;
-      object-fit: cover;
-      transform: scaleX(-1);
-    }
+#video {
+    position: absolute;
+    width: 240px;
+    right: 10px;
+    top: 10px;
+    border-radius: 10px;
+    border: 2px solid white;
+    transform: scaleX(-1);
+}
 
-    canvas {
-      position: absolute;
-      top: 0;
-      left: 0;
-    }
+#canvas {
+    position: absolute;
+    top: 0;
+    left: 0;
+}
 
-    #warning {
-      position: absolute;
-      bottom: 40px;
-      width: 100%;
-      font-size: 28px;
-      font-weight: bold;
-      color: #ff3b3b;
-      display: none;
-      text-shadow: 0 0 10px #000;
-    }
-
-    #status {
-      position: absolute;
-      top: 20px;
-      width: 100%;
-      font-size: 18px;
-      color: #00ffcc;
-    }
-  </style>
+#warning {
+    position: absolute;
+    bottom: 40px;
+    width: 100%;
+    text-align: center;
+    font-size: 30px;
+    color: red;
+    display: none;
+}
+</style>
 </head>
 
 <body>
-<div id="container">
-  <video id="video" autoplay playsinline></video>
-  <canvas id="canvas"></canvas>
 
-  <div id="status">正在启动摄像头...</div>
-  <div id="warning">⚠️ 坐姿不端正，请坐直！</div>
-</div>
+<video id="video" autoplay playsinline></video>
+<canvas id="canvas"></canvas>
+
+<div id="warning">⚠️ 坐姿不端正！请坐直</div>
 
 <!-- MediaPipe -->
 <script src="https://cdn.jsdelivr.net/npm/@mediapipe/pose/pose.js"></script>
@@ -71,116 +54,94 @@
 <script src="https://cdn.jsdelivr.net/npm/@mediapipe/drawing_utils/drawing_utils.js"></script>
 
 <script>
-const videoElement = document.getElementById('video');
-const canvasElement = document.getElementById('canvas');
-const canvasCtx = canvasElement.getContext('2d');
-const warningEl = document.getElementById('warning');
-const statusEl = document.getElementById('status');
 
-function calcAngle(a, b, c) {
-  // 计算角度（用于判断身体是否前倾）
-  const ab = { x: a.x - b.x, y: a.y - b.y };
-  const cb = { x: c.x - b.x, y: c.y - b.y };
+const videoElement = document.getElementById("video");
+const canvasElement = document.getElementById("canvas");
+const ctx = canvasElement.getContext("2d");
+const warning = document.getElementById("warning");
 
-  const dot = ab.x * cb.x + ab.y * cb.y;
-  const mag1 = Math.sqrt(ab.x ** 2 + ab.y ** 2);
-  const mag2 = Math.sqrt(cb.x ** 2 + cb.y ** 2);
-
-  const cos = dot / (mag1 * mag2);
-  return Math.acos(cos) * (180 / Math.PI);
-}
-
-function isBadPosture(landmarks) {
-  // 关键点：鼻子、肩膀、臀部
-  const nose = landmarks[0];
-  const leftShoulder = landmarks[11];
-  const rightShoulder = landmarks[12];
-  const leftHip = landmarks[23];
-  const rightHip = landmarks[24];
-
-  if (!nose || !leftShoulder || !rightShoulder || !leftHip || !rightHip) {
-    return false;
-  }
-
-  // 计算肩膀中心 & 臀部中心
-  const shoulderCenter = {
-    x: (leftShoulder.x + rightShoulder.x) / 2,
-    y: (leftShoulder.y + rightShoulder.y) / 2
-  };
-
-  const hipCenter = {
-    x: (leftHip.x + rightHip.x) / 2,
-    y: (leftHip.y + rightHip.y) / 2
-  };
-
-  // 判断头部是否过度前倾（鼻子偏离肩膀太多）
-  const headForward = Math.abs(nose.x - shoulderCenter.x);
-
-  // 判断身体是否弯曲（肩膀-臀部角度）
-  const angle = calcAngle(nose, shoulderCenter, hipCenter);
-
-  // 阈值可调
-  return headForward > 0.08 || angle < 160;
-}
-
-// 初始化 Pose
-const pose = new Pose.Pose({
-  locateFile: (file) =>
-    `https://cdn.jsdelivr.net/npm/@mediapipe/pose/${file}`
+// ===== Pose 初始化 =====
+const pose = new Pose({
+    locateFile: (file) =>
+        `https://cdn.jsdelivr.net/npm/@mediapipe/pose/${file}`
 });
 
 pose.setOptions({
-  modelComplexity: 1,
-  smoothLandmarks: true,
-  minDetectionConfidence: 0.5,
-  minTrackingConfidence: 0.5
+    modelComplexity: 1,
+    smoothLandmarks: true,
+    minDetectionConfidence: 0.6,
+    minTrackingConfidence: 0.6
 });
 
-pose.onResults(onResults);
+function isBadPosture(lm){
 
-function onResults(results) {
-  canvasElement.width = videoElement.videoWidth;
-  canvasElement.height = videoElement.videoHeight;
+    const nose = lm[0];
+    const ls = lm[11];
+    const rs = lm[12];
+    const lh = lm[23];
+    const rh = lm[24];
 
-  canvasCtx.save();
-  canvasCtx.clearRect(0, 0, canvasElement.width, canvasElement.height);
+    const shoulderX = (ls.x + rs.x) / 2;
 
-  if (results.poseLandmarks) {
-    drawConnectors(canvasCtx, results.poseLandmarks, Pose.POSE_CONNECTIONS);
-    drawLandmarks(canvasCtx, results.poseLandmarks);
+    const headForward = Math.abs(nose.x - shoulderX);
 
-    const bad = isBadPosture(results.poseLandmarks);
+    const shoulderCenterY = (ls.y + rs.y)/2;
+    const hipCenterY = (lh.y + rh.y)/2;
 
-    if (bad) {
-      warningEl.style.display = "block";
-    } else {
-      warningEl.style.display = "none";
-    }
+    const lean = shoulderCenterY - hipCenterY;
 
-    statusEl.innerText = "检测中：正常运行";
-  } else {
-    statusEl.innerText = "未检测到人体";
-  }
-
-  canvasCtx.restore();
+    return headForward > 0.08 || lean > 0.25;
 }
 
-// 摄像头
-const camera = new Camera.Camera(videoElement, {
-  onFrame: async () => {
-    await pose.send({ image: videoElement });
-  },
-  width: 640,
-  height: 480
+pose.onResults(results => {
+
+    canvasElement.width = videoElement.videoWidth;
+    canvasElement.height = videoElement.videoHeight;
+
+    ctx.clearRect(0,0,canvasElement.width,canvasElement.height);
+
+    if(results.poseLandmarks){
+
+        drawConnectors(ctx, results.poseLandmarks, Pose.POSE_CONNECTIONS);
+        drawLandmarks(ctx, results.poseLandmarks);
+
+        if(isBadPosture(results.poseLandmarks)){
+            warning.style.display = "block";
+        }else{
+            warning.style.display = "none";
+        }
+    }
 });
 
-camera.start()
-  .then(() => {
-    statusEl.innerText = "摄像头已开启";
-  })
-  .catch(err => {
-    statusEl.innerText = "摄像头启动失败：" + err;
-  });
+// ====== ⭐⭐⭐ 关键修复：用户点击触发摄像头 ======
+async function startCamera(){
+
+    const stream = await navigator.mediaDevices.getUserMedia({
+        video: true,
+        audio: false
+    });
+
+    videoElement.srcObject = stream;
+
+    await videoElement.play();
+
+    const camera = new Camera.Camera(videoElement, {
+        onFrame: async () => {
+            await pose.send({image: videoElement});
+        },
+        width: 640,
+        height: 480
+    });
+
+    camera.start();
+}
+
+// ===== 自动点击启动（必须用户触发）=====
+document.body.addEventListener("click", async () => {
+    if(videoElement.srcObject) return;
+    await startCamera();
+});
+
 </script>
 
 </body>
