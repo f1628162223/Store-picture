@@ -1,186 +1,186 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="zh">
 <head>
-<meta charset="UTF-8">
-<title>FIX HEAD ORIENTATION</title>
+  <meta charset="UTF-8" />
+  <title>坐姿检测</title>
+  <style>
+    body {
+      margin: 0;
+      font-family: Arial, sans-serif;
+      background: #000;
+      color: #fff;
+      text-align: center;
+    }
 
-<style>
-body { margin:0; overflow:hidden; background:#0a0f1e; }
-#video{
-    position:absolute;
-    right:10px;
-    top:10px;
-    width:180px;
-    border:2px solid white;
-    border-radius:10px;
-}
-#info{
-    position:absolute;
-    left:10px;
-    top:10px;
-    color:white;
-    font-family:monospace;
-}
-</style>
+    #container {
+      position: relative;
+      width: 100vw;
+      height: 100vh;
+      overflow: hidden;
+    }
+
+    video {
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+      transform: scaleX(-1);
+    }
+
+    canvas {
+      position: absolute;
+      top: 0;
+      left: 0;
+    }
+
+    #warning {
+      position: absolute;
+      bottom: 40px;
+      width: 100%;
+      font-size: 28px;
+      font-weight: bold;
+      color: #ff3b3b;
+      display: none;
+      text-shadow: 0 0 10px #000;
+    }
+
+    #status {
+      position: absolute;
+      top: 20px;
+      width: 100%;
+      font-size: 18px;
+      color: #00ffcc;
+    }
+  </style>
 </head>
 
 <body>
+<div id="container">
+  <video id="video" autoplay playsinline></video>
+  <canvas id="canvas"></canvas>
 
-<video id="video" autoplay playsinline></video>
-<canvas id="c"></canvas>
-<div id="info"></div>
+  <div id="status">正在启动摄像头...</div>
+  <div id="warning">⚠️ 坐姿不端正，请坐直！</div>
+</div>
 
-<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh/face_mesh.js"></script>
+<!-- MediaPipe -->
+<script src="https://cdn.jsdelivr.net/npm/@mediapipe/pose/pose.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@mediapipe/drawing_utils/drawing_utils.js"></script>
 
 <script>
+const videoElement = document.getElementById('video');
+const canvasElement = document.getElementById('canvas');
+const canvasCtx = canvasElement.getContext('2d');
+const warningEl = document.getElementById('warning');
+const statusEl = document.getElementById('status');
 
-// ================= SCENE =================
-const scene = new THREE.Scene();
+function calcAngle(a, b, c) {
+  // 计算角度（用于判断身体是否前倾）
+  const ab = { x: a.x - b.x, y: a.y - b.y };
+  const cb = { x: c.x - b.x, y: c.y - b.y };
 
-const camera = new THREE.PerspectiveCamera(70, innerWidth/innerHeight, 0.1, 1000);
-camera.position.z = 5;
+  const dot = ab.x * cb.x + ab.y * cb.y;
+  const mag1 = Math.sqrt(ab.x ** 2 + ab.y ** 2);
+  const mag2 = Math.sqrt(cb.x ** 2 + cb.y ** 2);
 
-const renderer = new THREE.WebGLRenderer({
-    canvas:document.getElementById("c"),
-    antialias:true
-});
-renderer.setSize(innerWidth, innerHeight);
-
-// light
-scene.add(new THREE.AmbientLight(0xffffff, 1.4));
-const light = new THREE.DirectionalLight(0xffffff, 1);
-light.position.set(5,5,5);
-scene.add(light);
-
-// ================= ROOT FIX（关键） =================
-const headRoot = new THREE.Group();
-scene.add(headRoot);
-
-// ================= HEAD =================
-function createHead(){
-
-    const g = new THREE.Group();
-
-    const skin = new THREE.MeshPhongMaterial({color:0xffd2a1});
-
-    const head = new THREE.Mesh(
-        new THREE.SphereGeometry(1,32,32),
-        skin
-    );
-    head.scale.set(1,1.1,0.9);
-    g.add(head);
-
-    const eyeMat = new THREE.MeshPhongMaterial({color:0xffffff});
-    const pupilMat = new THREE.MeshPhongMaterial({color:0x000});
-
-    const eyeGeo = new THREE.SphereGeometry(0.18,16,16);
-    const pupilGeo = new THREE.SphereGeometry(0.08,16,16);
-
-    const le = new THREE.Mesh(eyeGeo, eyeMat);
-    le.position.set(-0.35,0.35,0.85);
-    g.add(le);
-
-    const re = le.clone();
-    re.position.x = 0.35;
-    g.add(re);
-
-    const lp = new THREE.Mesh(pupilGeo, pupilMat);
-    lp.position.set(-0.35,0.35,1.05);
-    g.add(lp);
-
-    const rp = lp.clone();
-    rp.position.x = 0.35;
-    g.add(rp);
-
-    return g;
+  const cos = dot / (mag1 * mag2);
+  return Math.acos(cos) * (180 / Math.PI);
 }
 
-const head = createHead();
+function isBadPosture(landmarks) {
+  // 关键点：鼻子、肩膀、臀部
+  const nose = landmarks[0];
+  const leftShoulder = landmarks[11];
+  const rightShoulder = landmarks[12];
+  const leftHip = landmarks[23];
+  const rightHip = landmarks[24];
 
-// 👉 放进 root
-headRoot.add(head);
+  if (!nose || !leftShoulder || !rightShoulder || !leftHip || !rightHip) {
+    return false;
+  }
 
-// ================= SMOOTH =================
-let rot = {x:0,y:0,z:0};
-const lerp = (a,b,t)=>a+(b-a)*t;
+  // 计算肩膀中心 & 臀部中心
+  const shoulderCenter = {
+    x: (leftShoulder.x + rightShoulder.x) / 2,
+    y: (leftShoulder.y + rightShoulder.y) / 2
+  };
 
-// ================= FACE =================
-const video = document.getElementById("video");
+  const hipCenter = {
+    x: (leftHip.x + rightHip.x) / 2,
+    y: (leftHip.y + rightHip.y) / 2
+  };
 
-const faceMesh = new FaceMesh({
-    locateFile:(f)=>`https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh/${f}`
-});
+  // 判断头部是否过度前倾（鼻子偏离肩膀太多）
+  const headForward = Math.abs(nose.x - shoulderCenter.x);
 
-faceMesh.setOptions({
-    maxNumFaces:1,
-    refineLandmarks:true,
-    minDetectionConfidence:0.5,
-    minTrackingConfidence:0.5
-});
+  // 判断身体是否弯曲（肩膀-臀部角度）
+  const angle = calcAngle(nose, shoulderCenter, hipCenter);
 
-function pose(lm){
-    const nose = lm[1];
-    const le = lm[33];
-    const re = lm[263];
-    const chin = lm[152];
-
-    return {
-        yaw: (re.x - le.x) * 180,
-        pitch: (chin.y - nose.y) * 200,
-        roll: (re.y - le.y) * 200
-    };
+  // 阈值可调
+  return headForward > 0.08 || angle < 160;
 }
 
-faceMesh.onResults(res=>{
-
-    if(!res.multiFaceLandmarks?.length) return;
-
-    const lm = res.multiFaceLandmarks[0];
-    const p = pose(lm);
-
-    rot.y = lerp(rot.y, p.yaw, 0.15);
-    rot.x = lerp(rot.x, p.pitch, 0.15);
-    rot.z = lerp(rot.z, p.roll, 0.15);
-
-    // ================= FIX CORE =================
-    head.rotation.order = "YXZ";
-
-    head.rotation.y = rot.y * Math.PI / 180;
-    head.rotation.x = -rot.x * Math.PI / 180;
-    head.rotation.z = rot.z * Math.PI / 180;
-
-    document.getElementById("info").innerHTML =
-    `yaw:${rot.y.toFixed(1)}<br>
-     pitch:${rot.x.toFixed(1)}<br>
-     roll:${rot.z.toFixed(1)}`;
+// 初始化 Pose
+const pose = new Pose.Pose({
+  locateFile: (file) =>
+    `https://cdn.jsdelivr.net/npm/@mediapipe/pose/${file}`
 });
 
-// ================= CAMERA =================
-const cam = new Camera(video,{
-    onFrame: async ()=>{
-        await faceMesh.send({image:video});
-    },
-    width:640,
-    height:480
+pose.setOptions({
+  modelComplexity: 1,
+  smoothLandmarks: true,
+  minDetectionConfidence: 0.5,
+  minTrackingConfidence: 0.5
 });
 
-cam.start();
+pose.onResults(onResults);
 
-// ================= LOOP =================
-function animate(){
-    requestAnimationFrame(animate);
-    renderer.render(scene,camera);
+function onResults(results) {
+  canvasElement.width = videoElement.videoWidth;
+  canvasElement.height = videoElement.videoHeight;
+
+  canvasCtx.save();
+  canvasCtx.clearRect(0, 0, canvasElement.width, canvasElement.height);
+
+  if (results.poseLandmarks) {
+    drawConnectors(canvasCtx, results.poseLandmarks, Pose.POSE_CONNECTIONS);
+    drawLandmarks(canvasCtx, results.poseLandmarks);
+
+    const bad = isBadPosture(results.poseLandmarks);
+
+    if (bad) {
+      warningEl.style.display = "block";
+    } else {
+      warningEl.style.display = "none";
+    }
+
+    statusEl.innerText = "检测中：正常运行";
+  } else {
+    statusEl.innerText = "未检测到人体";
+  }
+
+  canvasCtx.restore();
 }
-animate();
 
-addEventListener("resize",()=>{
-    camera.aspect = innerWidth/innerHeight;
-    camera.updateProjectionMatrix();
-    renderer.setSize(innerWidth,innerHeight);
+// 摄像头
+const camera = new Camera.Camera(videoElement, {
+  onFrame: async () => {
+    await pose.send({ image: videoElement });
+  },
+  width: 640,
+  height: 480
 });
 
+camera.start()
+  .then(() => {
+    statusEl.innerText = "摄像头已开启";
+  })
+  .catch(err => {
+    statusEl.innerText = "摄像头启动失败：" + err;
+  });
 </script>
 
 </body>
