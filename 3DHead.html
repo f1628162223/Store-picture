@@ -1,37 +1,166 @@
 <!DOCTYPE html>
 <html lang="zh">
-  <head>
-    <meta charset="UTF-8" />
-    <title>Camera Only</title>
+<head>
+  <meta charset="UTF-8" />
+  <title>坐姿检测（修复摄像头版）</title>
 
-    <style>
-      body {
-        margin: 0;
-        overflow: hidden;
-        background: black;
-      }
-      video {
-        width: 100vw;
-        height: 100vh;
-        object-fit: cover;
-      }
-    </style>
-  </head>
+  <style>
+    body {
+      margin: 0;
+      background: black;
+      overflow: hidden;
+      font-family: Arial;
+    }
 
-  <body>
-    <video id="video" autoplay playsinline></video>
+    video {
+      position: absolute;
+      width: 100vw;
+      height: 100vh;
+      object-fit: cover;
+      transform: scaleX(-1);
+    }
 
-    <script>
-      // 获取摄像头
-      navigator.mediaDevices
-        .getUserMedia({ video: true, audio: false })
-        .then((stream) => {
-          const video = document.getElementById("video");
-          video.srcObject = stream;
-        })
-        .catch((err) => {
-          console.error("无法访问摄像头:", err);
-        });
-    </script>
-  </body>
+    canvas {
+      position: absolute;
+      top: 0;
+      left: 0;
+    }
+
+    #warning {
+      position: absolute;
+      bottom: 40px;
+      width: 100%;
+      text-align: center;
+      font-size: 28px;
+      color: red;
+      display: none;
+      font-weight: bold;
+    }
+
+    #status {
+      position: absolute;
+      top: 20px;
+      width: 100%;
+      text-align: center;
+      color: #00ffcc;
+      font-size: 16px;
+    }
+  </style>
+</head>
+
+<body>
+
+<video id="video" autoplay playsinline></video>
+<canvas id="canvas"></canvas>
+
+<div id="status">等待摄像头权限...</div>
+<div id="warning">⚠️ 坐姿不正确，请坐直！</div>
+
+<script src="https://cdn.jsdelivr.net/npm/@mediapipe/pose/pose.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@mediapipe/drawing_utils/drawing_utils.js"></script>
+
+<script>
+const video = document.getElementById("video");
+const canvas = document.getElementById("canvas");
+const ctx = canvas.getContext("2d");
+
+const warning = document.getElementById("warning");
+const status = document.getElementById("status");
+
+// ========================
+// 1. 正确打开摄像头（关键）
+// ========================
+async function startCamera() {
+  try {
+    const stream = await navigator.mediaDevices.getUserMedia({
+      video: {
+        facingMode: "user"
+      },
+      audio: false
+    });
+
+    video.srcObject = stream;
+
+    video.onloadedmetadata = () => {
+      video.play();
+      status.innerText = "摄像头已开启，检测中...";
+      startPose(); // 摄像头成功后再启动AI
+    };
+
+  } catch (err) {
+    console.error(err);
+    status.innerText = "摄像头启动失败：" + err.message;
+  }
+}
+
+// ========================
+// 2. 姿态识别
+// ========================
+function startPose() {
+  const pose = new Pose.Pose({
+    locateFile: (file) =>
+      `https://cdn.jsdelivr.net/npm/@mediapipe/pose/${file}`
+  });
+
+  pose.setOptions({
+    modelComplexity: 1,
+    smoothLandmarks: true,
+    minDetectionConfidence: 0.5,
+    minTrackingConfidence: 0.5
+  });
+
+  pose.onResults(onResults);
+
+  async function detect() {
+    await pose.send({ image: video });
+    requestAnimationFrame(detect);
+  }
+
+  detect();
+}
+
+// ========================
+// 3. 判断坐姿
+// ========================
+function isBadPosture(landmarks) {
+  const nose = landmarks[0];
+  const leftShoulder = landmarks[11];
+  const rightShoulder = landmarks[12];
+
+  if (!nose || !leftShoulder || !rightShoulder) return false;
+
+  const shoulderX = (leftShoulder.x + rightShoulder.x) / 2;
+
+  // 头偏离肩膀太多 = 前倾
+  return Math.abs(nose.x - shoulderX) > 0.08;
+}
+
+// ========================
+// 4. 结果处理
+// ========================
+function onResults(results) {
+  canvas.width = video.videoWidth;
+  canvas.height = video.videoHeight;
+
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+  if (results.poseLandmarks) {
+    drawConnectors(ctx, results.poseLandmarks, Pose.POSE_CONNECTIONS);
+    drawLandmarks(ctx, results.poseLandmarks);
+
+    if (isBadPosture(results.poseLandmarks)) {
+      warning.style.display = "block";
+    } else {
+      warning.style.display = "none";
+    }
+  }
+}
+
+// ========================
+// 启动
+// ========================
+startCamera();
+</script>
+
+</body>
 </html>
