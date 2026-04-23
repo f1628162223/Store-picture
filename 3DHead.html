@@ -2,11 +2,23 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<title>3D Face Tracking FIX</title>
+<title>Cartoon Face Tracking FIX</title>
 <style>
-body { margin:0; overflow:hidden; background:#000; }
-#video { position:absolute; right:10px; top:10px; width:200px; border:2px solid #fff; }
-#info { position:absolute; left:10px; top:10px; color:#fff; font-family:monospace; }
+body { margin:0; overflow:hidden; }
+#video {
+    position:absolute;
+    right:10px;
+    top:10px;
+    width:200px;
+    border:2px solid #fff;
+}
+#info {
+    position:absolute;
+    left:10px;
+    top:10px;
+    color:white;
+    font-family:monospace;
+}
 </style>
 </head>
 <body>
@@ -22,23 +34,70 @@ body { margin:0; overflow:hidden; background:#000; }
 <script>
 
 let scene = new THREE.Scene();
+
 let camera = new THREE.PerspectiveCamera(70, innerWidth/innerHeight, 0.1, 1000);
 camera.position.z = 5;
 
-let renderer = new THREE.WebGLRenderer({canvas:document.getElementById("c"), antialias:true});
+let renderer = new THREE.WebGLRenderer({
+    canvas: document.getElementById("c"),
+    antialias:true
+});
 renderer.setSize(innerWidth, innerHeight);
 
-scene.add(new THREE.AmbientLight(0xffffff,1));
+// LIGHTS（必须，不然你的卡通模型会黑）
+scene.add(new THREE.AmbientLight(0xffffff, 1.2));
+let light = new THREE.DirectionalLight(0xffffff, 1);
+light.position.set(5,5,5);
+scene.add(light);
 
-let head = new THREE.Mesh(
-    new THREE.SphereGeometry(1,32,32),
-    new THREE.MeshNormalMaterial()
-);
+// ====== YOUR CARTOON HEAD ======
+function createCartoonHead(){
+    const head = new THREE.Group();
+
+    const face = new THREE.Mesh(
+        new THREE.SphereGeometry(1,32,32),
+        new THREE.MeshPhongMaterial({color:0xfdbf6f})
+    );
+    face.scale.set(1,1.1,0.9);
+    head.add(face);
+
+    const eyeGeo = new THREE.SphereGeometry(0.2,16,16);
+    const eyeMat = new THREE.MeshPhongMaterial({color:0xffffff});
+
+    let leftEye = new THREE.Mesh(eyeGeo, eyeMat);
+    leftEye.position.set(-0.4,0.4,0.9);
+    head.add(leftEye);
+
+    let rightEye = leftEye.clone();
+    rightEye.position.x = 0.4;
+    head.add(rightEye);
+
+    const pupilGeo = new THREE.SphereGeometry(0.1,16,16);
+    const pupilMat = new THREE.MeshPhongMaterial({color:0x000});
+
+    let lp = new THREE.Mesh(pupilGeo, pupilMat);
+    lp.position.set(-0.4,0.4,1.1);
+    head.add(lp);
+
+    let rp = lp.clone();
+    rp.position.x = 0.4;
+    head.add(rp);
+
+    const mouth = new THREE.Mesh(
+        new THREE.BoxGeometry(0.5,0.1,0.1),
+        new THREE.MeshPhongMaterial({color:0x000})
+    );
+    mouth.position.set(0,-0.6,0.9);
+    head.add(mouth);
+
+    return head;
+}
+
+let head = createCartoonHead();
 scene.add(head);
 
 // smoothing
 let rot = {x:0,y:0,z:0};
-
 function lerp(a,b,t){ return a+(b-a)*t; }
 
 // FaceMesh
@@ -55,54 +114,40 @@ faceMesh.setOptions({
     minTrackingConfidence:0.5
 });
 
-// 更稳定的 3D head pose 估算（改进版）
-function estimatePose(lm){
-
-    // MediaPipe关键点
+// better pose estimation
+function pose(lm){
     const nose = lm[1];
-    const leftEye = lm[33];
-    const rightEye = lm[263];
+    const le = lm[33];
+    const re = lm[263];
     const chin = lm[152];
 
-    // YAW：左右眼差
-    let yaw = (rightEye.x - leftEye.x);
-
-    // PITCH：鼻子-下巴
-    let pitch = (chin.y - nose.y);
-
-    // ROLL：眼睛倾斜
-    let roll = (rightEye.y - leftEye.y);
-
     return {
-        yaw: yaw * 180,
-        pitch: pitch * 200,
-        roll: roll * 200
+        yaw: (re.x - le.x) * 180,
+        pitch: (chin.y - nose.y) * 200,
+        roll: (re.y - le.y) * 200
     };
 }
 
-faceMesh.onResults(results => {
+faceMesh.onResults(res=>{
 
-    if(!results.multiFaceLandmarks?.length) return;
+    if(!res.multiFaceLandmarks?.length) return;
 
-    let lm = results.multiFaceLandmarks[0];
+    let lm = res.multiFaceLandmarks[0];
+    let p = pose(lm);
 
-    let p = estimatePose(lm);
-
-    // smooth
     rot.y = lerp(rot.y, p.yaw, 0.15);
     rot.x = lerp(rot.x, p.pitch, 0.15);
     rot.z = lerp(rot.z, p.roll, 0.15);
 
-    // apply
-    head.rotation.y = rot.y * Math.PI / 180;
-    head.rotation.x = -rot.x * Math.PI / 180;
-    head.rotation.z = rot.z * Math.PI / 180;
+    head.rotation.y = rot.y * Math.PI/180;
+    head.rotation.x = -rot.x * Math.PI/180;
+    head.rotation.z = rot.z * Math.PI/180;
 
     document.getElementById("info").innerHTML =
     `yaw:${rot.y.toFixed(1)}<br>pitch:${rot.x.toFixed(1)}<br>roll:${rot.z.toFixed(1)}`;
 });
 
-const cam = new Camera(video, {
+const cam = new Camera(video,{
     onFrame: async ()=>{
         await faceMesh.send({image:video});
     },
