@@ -2,14 +2,13 @@
 <html lang="zh">
 <head>
 <meta charset="UTF-8" />
-<title>卡通头姿态跟随</title>
+<title>卡通坐姿跟随系统</title>
 
 <style>
   body {
     margin: 0;
-    background: #000;
+    background: black;
     overflow: hidden;
-    font-family: sans-serif;
   }
 
   video {
@@ -34,7 +33,7 @@
     left: 50%;
     top: 20%;
     transform: translateX(-50%);
-    transition: transform 0.08s linear;
+    transition: transform 0.06s linear;
   }
 
   #face {
@@ -75,7 +74,7 @@
     width: 100%;
     text-align: center;
     color: white;
-    font-size: 20px;
+    font-size: 22px;
   }
 </style>
 </head>
@@ -120,7 +119,14 @@ async function startCamera() {
 }
 
 // =========================
-// 姿态计算（核心）
+// 非线性放大（关键优化）
+// =========================
+function amplify(x) {
+  return Math.sign(x) * Math.pow(Math.abs(x), 1.5);
+}
+
+// =========================
+// 头部姿态计算（修正版）
 // =========================
 function getHeadAngles(lm) {
 
@@ -128,35 +134,42 @@ function getHeadAngles(lm) {
   const ls = lm[11];
   const rs = lm[12];
 
-  // 左右歪头（roll）
-  const roll = (ls.y - rs.y) * 100;
+  const midY = (ls.y + rs.y) / 2;
 
-  // 低头（pitch）
-  const pitch = (nose.y - (ls.y + rs.y)/2) * 100;
+  // ✔ 低头（放大 + 非线性）
+  let pitch = amplify(nose.y - midY) * 500;
 
-  // 左右转头（yaw 简化）
-  const yaw = (nose.x - 0.5) * 100;
+  // ✔ 左右歪头（修正方向 + 放大）
+  let roll = amplify(rs.y - ls.y) * 500;
+
+  // ✔ 左右转头（修正镜像 + 放大）
+  let yaw = amplify(0.5 - nose.x) * 500;
+
+  // ===== 死区（防抖动）=====
+  if (Math.abs(pitch) < 3) pitch = 0;
+  if (Math.abs(roll) < 3) roll = 0;
+  if (Math.abs(yaw) < 3) yaw = 0;
 
   return { pitch, roll, yaw };
 }
 
 // =========================
-// 动画映射（关键）
+// 驱动卡通头
 // =========================
 function updateAnimal({pitch, roll, yaw}) {
 
-  // 限制范围
-  pitch = Math.max(-30, Math.min(30, pitch));
-  roll  = Math.max(-30, Math.min(30, roll));
-  yaw   = Math.max(-30, Math.min(30, yaw));
+  // 限制最大角度（防翻车）
+  pitch = Math.max(-40, Math.min(40, pitch));
+  roll  = Math.max(-40, Math.min(40, roll));
+  yaw   = Math.max(-40, Math.min(40, yaw));
 
   animal.style.transform =
-    `translateX(-50%) 
-     rotate(${roll}deg) 
+    `translateX(-50%)
+     rotate(${roll}deg)
      rotateX(${-pitch}deg)
      rotateY(${yaw}deg)`;
 
-  // 状态提示
+  // ===== 状态提示 =====
   if (Math.abs(pitch) > 15) {
     statusEl.innerText = "⚠ 低头过多";
   } else if (Math.abs(roll) > 15) {
@@ -187,7 +200,7 @@ function initPose() {
 
     const lm = res.poseLandmarks;
 
-    // 可视化（可关掉）
+    // ===== 可视化骨架（调试用）=====
     canvas.width = video.videoWidth;
     canvas.height = video.videoHeight;
 
