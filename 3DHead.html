@@ -2,7 +2,7 @@
 <html lang="zh">
 <head>
 <meta charset="UTF-8" />
-<title>坐姿评分系统</title>
+<title>坐姿检测系统</title>
 
 <style>
   body {
@@ -34,7 +34,6 @@
     font-size: 10vh;
     font-weight: 900;
     color: white;
-    text-shadow: 0 0 12px black;
   }
 
   #warning {
@@ -42,7 +41,7 @@
     bottom: 10vh;
     left: 50%;
     transform: translateX(-50%);
-    font-size: 5vh;
+    font-size: 5.5vh;
     font-weight: 900;
     color: red;
     background: rgba(0,0,0,0.7);
@@ -76,15 +75,12 @@ const scoreEl = document.getElementById("score");
 const warningEl = document.getElementById("warning");
 
 let pose;
-
-// =======================
-// 用于“平滑评分”（关键修复）
-// =======================
 let scoreBuffer = [];
+let badFrames = 0;
 
-// =======================
+// =========================
 // 摄像头
-// =======================
+// =========================
 async function startCamera() {
   const stream = await navigator.mediaDevices.getUserMedia({
     video: { facingMode: "user" },
@@ -97,16 +93,19 @@ async function startCamera() {
   await video.play();
 }
 
-// =======================
-// 镜像修复
-// =======================
+// =========================
+// 镜像
+// =========================
 function mirror(lm) {
-  return lm.map(p => ({ ...p, x: 1 - p.x }));
+  return lm.map(p => ({
+    ...p,
+    x: 1 - p.x
+  }));
 }
 
-// =======================
-// ⭐ 核心评分逻辑（已优化）
-// =======================
+// =========================
+// ⭐ 更真实评分系统
+// =========================
 function calcScore(lm) {
 
   const nose = lm[0];
@@ -115,9 +114,7 @@ function calcScore(lm) {
   const lh = lm[23];
   const rh = lm[24];
 
-  if (!nose || !ls || !rs || !lh || !rh) {
-    return 100;
-  }
+  if (!nose || !ls || !rs || !lh || !rh) return 100;
 
   const shoulderX = (ls.x + rs.x) / 2;
   const shoulderY = (ls.y + rs.y) / 2;
@@ -125,49 +122,52 @@ function calcScore(lm) {
 
   let score = 100;
 
-  // =========================
-  // 🟡 轻微低头（允许写作业）
-  // =========================
+  // =====================
+  // 🟡 允许轻微低头（写作业正常）
+  // =====================
   const headDrop = nose.y - shoulderY;
-  if (headDrop > 0.25) score -= 20;
+  if (headDrop > 0.28) score -= 15;
 
-  // =========================
-  // 🔴 前倾（比例判断）
-  // =========================
+  // =====================
+  // 🔴 前倾（核心判断）
+  // =====================
   const bodyLean =
     Math.abs(nose.x - shoulderX) /
     Math.max(0.01, Math.abs(rs.x - ls.x));
 
-  if (bodyLean > 0.28) score -= 30;
+  if (bodyLean > 0.30) score -= 35;
 
-  // =========================
-  // 🔴 趴桌（强扣分）
-  // =========================
+  // =====================
+  // 🔴 趴桌（强判断）
+  // =====================
   if (nose.y > hipY - 0.10) score -= 50;
 
   return Math.max(0, score);
 }
 
-// =======================
-// ⭐ 平滑评分（解决“一直100”问题关键）
-// =======================
+// =========================
+// ⭐ 防“全程100”的关键修复
+// =========================
 function smoothScore(newScore) {
 
   scoreBuffer.push(newScore);
 
-  if (scoreBuffer.length > 8) {
+  if (scoreBuffer.length > 6) {
     scoreBuffer.shift();
   }
 
   const avg =
     scoreBuffer.reduce((a, b) => a + b, 0) / scoreBuffer.length;
 
-  return Math.round(avg);
+  const min = Math.min(...scoreBuffer);
+
+  // 👉 保留异常影响
+  return Math.round(avg * 0.6 + min * 0.4);
 }
 
-// =======================
+// =========================
 // 初始化
-// =======================
+// =========================
 function initPose() {
 
   pose = new Pose({
@@ -187,17 +187,17 @@ function initPose() {
   loop();
 }
 
-// =======================
+// =========================
 // 循环
-// =======================
+// =========================
 async function loop() {
   await pose.send({ image: video });
   requestAnimationFrame(loop);
 }
 
-// =======================
+// =========================
 // 结果
-// =======================
+// =========================
 function onResults(results) {
 
   canvas.width = video.videoWidth;
@@ -212,34 +212,37 @@ function onResults(results) {
   drawConnectors(ctx, lm, Pose.POSE_CONNECTIONS);
   drawLandmarks(ctx, lm);
 
-  // =======================
-  // 计算评分
-  // =======================
   const rawScore = calcScore(lm);
   const score = smoothScore(rawScore);
 
   scoreEl.innerText = score;
 
-  // =======================
-  // 提示逻辑
-  // =======================
-  let msg = "";
+  // =========================
+  // 🔥 关键：更容易触发报警
+  // =========================
+  if (rawScore < 60) {
+    badFrames += 2;
+  } else {
+    badFrames = Math.max(0, badFrames - 1);
+  }
 
-  if (score < 70) {
-    if (rawScore < 40) msg = "趴桌 / 距离过近";
-    else if (rawScore < 70) msg = "身体前倾";
-    else msg = "坐姿不良";
-
+  if (badFrames > 4) {
     warningEl.style.display = "block";
-    warningEl.innerText = "⚠ " + msg;
+
+    if (rawScore < 40) {
+      warningEl.innerText = "⚠ 趴桌姿势";
+    } else {
+      warningEl.innerText = "⚠ 坐姿不端正（请挺直身体）";
+    }
+
   } else {
     warningEl.style.display = "none";
   }
 }
 
-// =======================
+// =========================
 // 启动
-// =======================
+// =========================
 async function start() {
   await startCamera();
   initPose();
