@@ -308,15 +308,19 @@
                 const cartoonHead = createCartoonHead();
                 headGroup.add(cartoonHead);
 
-                // 添加一个简单的立方体作为测试
-                const testGeo = new THREE.BoxGeometry(0.5, 0.5, 0.5);
-                const testMat = new THREE.MeshPhongMaterial({ color: 0xff0000, emissive: 0x4400ff });
-                const testCube = new THREE.Mesh(testGeo, testMat);
-                testCube.position.set(2.5, 0, 0);
-                scene.add(testCube);
+                // 添加一个坐标系帮助器用于调试
+                const axesHelper = new THREE.AxesHelper(2);
+                scene.add(axesHelper);
 
-                console.log('✓ 卡通头部已创建');
-                console.log('Three.js 场景:', { canvas, scene, renderer, camera });
+                console.log('✓ 卡通头部已创建，坐标系已显示');
+                console.log('Three.js 场景:', { 
+                    canvas, 
+                    scene, 
+                    renderer, 
+                    camera,
+                    headGroup,
+                    animationStarted: false
+                });
 
                 // ============= SMOOTHING VARIABLES =============
                 const smoothing = {
@@ -337,6 +341,7 @@
                 setLoadingStep('step3');
 
                 let faceDetected = false;
+                let frameProcessed = 0;
 
                 // 创建和配置 FaceMesh
                 const faceMesh = new FaceMesh({
@@ -346,6 +351,8 @@
                     }
                 });
 
+                console.log('📊 FaceMesh 实例已创建');
+
                 faceMesh.setOptions({
                     maxNumFaces: 1,
                     refineLandmarks: true,
@@ -353,13 +360,23 @@
                     minTrackingConfidence: 0.5
                 });
 
+                console.log('⚙️ FaceMesh 选项已设置');
+
                 // 定义面部检测回调函数
                 function onResults(results) {
+                    frameProcessed++;
+                    
                     if (!results.multiFaceLandmarks || results.multiFaceLandmarks.length === 0) {
+                        if (frameProcessed % 30 === 0) {
+                            console.log('⚠️ 未检测到人脸，请确保你在摄像头前面');
+                        }
                         faceDetected = false;
                         return;
                     }
 
+                    if (!faceDetected) {
+                        console.log('✅ 首次检测到人脸！开始跟踪...');
+                    }
                     faceDetected = true;
                     const landmarks = results.multiFaceLandmarks[0];
 
@@ -374,11 +391,11 @@
                     // Calculate head rotation angles from landmarks
                     // YAW (left-right rotation)
                     const cheekDiff = rightCheek.x - leftCheek.x;
-                    smoothing.targetYaw = (cheekDiff - 0.5) * 120; // Range: -60 to 60 degrees
+                    smoothing.targetYaw = (cheekDiff - 0.5) * 120;
 
                     // PITCH (up-down rotation)
                     const verticalDiff = noseTip.y - foreheadMid.y;
-                    smoothing.targetPitch = verticalDiff * -200; // Invert for intuitive control
+                    smoothing.targetPitch = verticalDiff * -200;
 
                     // ROLL (head tilt)
                     const earDiff = rightEar.y - leftEar.y;
@@ -388,10 +405,16 @@
                     smoothing.targetYaw = Math.max(-45, Math.min(45, smoothing.targetYaw));
                     smoothing.targetPitch = Math.max(-40, Math.min(40, smoothing.targetPitch));
                     smoothing.targetRoll = Math.max(-30, Math.min(30, smoothing.targetRoll));
+
+                    // 调试日志（每秒一次）
+                    if (frameProcessed % 30 === 0) {
+                        console.log(`📍 Yaw: ${smoothing.targetYaw.toFixed(1)}° | Pitch: ${smoothing.targetPitch.toFixed(1)}° | Roll: ${smoothing.targetRoll.toFixed(1)}°`);
+                    }
                 }
 
                 // 设置回调函数
                 faceMesh.onResults(onResults);
+                console.log('🔗 face mesh 回调已注册');
 
                 // 创建 Camera 实例
                 const camera_utils_camera = new Camera(video, {
@@ -402,11 +425,14 @@
                     height: 720
                 });
 
+                console.log('🎥 Camera 实例已创建');
+
                 // 启动摄像头 - 这会触发权限请求
                 try {
-                    console.log('正在启动摄像头...');
+                    console.log('📹 正在启动摄像头...');
                     camera_utils_camera.start();
-                    console.log('摄像头已启动，开始面部检测...');
+                    console.log('✓ 摄像头已启动，开始面部检测...');
+                    console.log('💡 提示：请对着摄像头，缓慢移动你的头部，观察 3D 模型是否跟随');
                     
                     // 稍等片刻，然后隐藏加载界面
                     setTimeout(() => {
@@ -416,7 +442,7 @@
                     }, 500);
                     
                 } catch (error) {
-                    console.error('摄像头启动失败:', error);
+                    console.error('❌ 摄像头启动失败:', error);
                     if (error.name === 'NotAllowedError') {
                         showError('您拒绝了摄像头权限访问。请重新加载页面并允许摄像头权限。');
                     } else if (error.name === 'NotFoundError') {
@@ -434,9 +460,16 @@
                 // ============= ANIMATION LOOP =============
                 let frameCount = 0;
                 let lastTime = Date.now();
+                let animationStarted = false;
 
                 function animate() {
                     requestAnimationFrame(animate);
+
+                    // 第一帧时输出信息
+                    if (!animationStarted) {
+                        animationStarted = true;
+                        console.log('🎬 动画循环已启动...');
+                    }
 
                     if (faceDetected) {
                         // Smooth interpolation towards target values
@@ -445,15 +478,27 @@
                         smoothing.roll = lerp(smoothing.roll, smoothing.targetRoll, lerpFactor);
 
                         // Apply rotations to head group
-                        headGroup.rotation.order = 'YXZ'; // Order matters for natural rotation
-                        headGroup.rotation.y = (smoothing.yaw * Math.PI) / 180;   // Yaw
-                        headGroup.rotation.x = (smoothing.pitch * Math.PI) / 180; // Pitch
-                        headGroup.rotation.z = (smoothing.roll * Math.PI) / 180;  // Roll
+                        headGroup.rotation.order = 'YXZ';
+                        headGroup.rotation.y = (smoothing.yaw * Math.PI) / 180;
+                        headGroup.rotation.x = (smoothing.pitch * Math.PI) / 180;
+                        headGroup.rotation.z = (smoothing.roll * Math.PI) / 180;
 
                         // Update UI
                         document.getElementById('yaw').textContent = smoothing.yaw.toFixed(1);
                         document.getElementById('pitch').textContent = smoothing.pitch.toFixed(1);
                         document.getElementById('roll').textContent = smoothing.roll.toFixed(1);
+                    } else {
+                        // 面部未检测到，缓慢回到初始位置
+                        smoothing.targetYaw = 0;
+                        smoothing.targetPitch = 0;
+                        smoothing.targetRoll = 0;
+                        smoothing.yaw = lerp(smoothing.yaw, 0, 0.05);
+                        smoothing.pitch = lerp(smoothing.pitch, 0, 0.05);
+                        smoothing.roll = lerp(smoothing.roll, 0, 0.05);
+                        
+                        headGroup.rotation.y = (smoothing.yaw * Math.PI) / 180;
+                        headGroup.rotation.x = (smoothing.pitch * Math.PI) / 180;
+                        headGroup.rotation.z = (smoothing.roll * Math.PI) / 180;
                     }
 
                     // Calculate FPS
