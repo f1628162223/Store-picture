@@ -2,7 +2,7 @@
 <html lang="zh">
 <head>
 <meta charset="UTF-8" />
-<title>坐姿检测系统</title>
+<title>工业级坐姿检测系统</title>
 
 <style>
   body {
@@ -13,6 +13,7 @@
     color: white;
   }
 
+  /* 视频镜像 */
   video {
     position: absolute;
     width: 100vw;
@@ -27,18 +28,16 @@
     left: 0;
   }
 
-  /* 状态 */
   #status {
     position: absolute;
     top: 2vh;
     width: 100%;
     text-align: center;
-    font-size: 5vh;
+    font-size: 4vh;
     font-weight: bold;
     color: #00ffcc;
   }
 
-  /* 分数 */
   #score {
     position: absolute;
     top: 10vh;
@@ -49,7 +48,6 @@
     color: white;
   }
 
-  /* 警告 */
   #warning {
     position: absolute;
     bottom: 10vh;
@@ -71,7 +69,7 @@
 <video id="video" autoplay playsinline></video>
 <canvas id="canvas"></canvas>
 
-<div id="status">启动中...</div>
+<div id="status">启动摄像头...</div>
 <div id="score">--</div>
 <div id="warning">⚠ 坐姿不正确</div>
 
@@ -91,9 +89,9 @@ const warningEl = document.getElementById("warning");
 let pose;
 let running = false;
 
-// =====================
+// =========================
 // 摄像头
-// =====================
+// =========================
 async function startCamera() {
 
   const stream = await navigator.mediaDevices.getUserMedia({
@@ -111,9 +109,19 @@ async function startCamera() {
   });
 }
 
-// =====================
-// AI 初始化（无UI文字）
-// =====================
+// =========================
+// 镜像修复（关键）
+// =========================
+function mirror(landmarks) {
+  return landmarks.map(p => ({
+    ...p,
+    x: 1 - p.x   // 🔥 关键：左右翻转同步
+  }));
+}
+
+// =========================
+// 初始化 AI
+// =========================
 function initPose() {
 
   pose = new Pose({
@@ -134,20 +142,24 @@ function initPose() {
   loop();
 }
 
-// =====================
-// 循环
-// =====================
+// =========================
+// 稳定循环（工业级）
+// =========================
 async function loop() {
   if (!running) return;
 
-  await pose.send({ image: video });
+  try {
+    await pose.send({ image: video });
+  } catch (e) {
+    console.log("pose error", e);
+  }
 
-  setTimeout(loop, 33);
+  setTimeout(loop, 33); // 30fps稳定
 }
 
-// =====================
-// 评分逻辑
-// =====================
+// =========================
+// 评分系统
+// =========================
 function getScore(lm) {
 
   const nose = lm[0];
@@ -160,20 +172,28 @@ function getScore(lm) {
 
   const shoulderX = (ls.x + rs.x) / 2;
   const shoulderY = (ls.y + rs.y) / 2;
+  const hipY = (lh.y + rh.y) / 2;
 
   let score = 100;
 
-  if (nose.y > shoulderY + 0.12) score -= 30;
+  // 低头
+  if (nose.y > shoulderY + 0.12) score -= 35;
+
+  // 左右歪头
   if (Math.abs(nose.x - shoulderX) > 0.1) score -= 25;
+
+  // 趴桌
+  if (nose.y > hipY - 0.05) score -= 30;
 
   return Math.max(0, score);
 }
 
-// =====================
-// 结果
-// =====================
+// =========================
+// 核心渲染（对齐修复）
+// =========================
 function onResults(results) {
 
+  // ✔ 每帧同步尺寸（防止偏移）
   canvas.width = video.videoWidth;
   canvas.height = video.videoHeight;
 
@@ -181,10 +201,14 @@ function onResults(results) {
 
   if (!results.poseLandmarks) return;
 
-  drawConnectors(ctx, results.poseLandmarks, Pose.POSE_CONNECTIONS);
-  drawLandmarks(ctx, results.poseLandmarks);
+  // 🔥 镜像修复（关键）
+  const lm = mirror(results.poseLandmarks);
 
-  const score = getScore(results.poseLandmarks);
+  // 画骨架
+  drawConnectors(ctx, lm, Pose.POSE_CONNECTIONS);
+  drawLandmarks(ctx, lm);
+
+  const score = getScore(lm);
 
   scoreEl.innerText = score;
 
@@ -197,14 +221,16 @@ function onResults(results) {
   statusEl.innerText = "运行中";
 }
 
-// =====================
+// =========================
 // 启动
-// =====================
+// =========================
 async function start() {
 
-  statusEl.innerText = "启动摄像头...";
+  statusEl.innerText = "请求摄像头...";
 
   await startCamera();
+
+  statusEl.innerText = "加载模型...";
 
   initPose();
 
