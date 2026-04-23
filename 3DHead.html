@@ -2,11 +2,11 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<title>Pose Avatar System</title>
+<title>Head Tracking FIX</title>
 
 <style>
 body { margin:0; overflow:hidden; background:#0a0f1e; }
-#video {
+#video{
     position:absolute;
     right:10px;
     top:10px;
@@ -20,7 +20,6 @@ body { margin:0; overflow:hidden; background:#0a0f1e; }
     top:10px;
     color:white;
     font-family:monospace;
-    font-size:13px;
 }
 </style>
 </head>
@@ -32,7 +31,7 @@ body { margin:0; overflow:hidden; background:#0a0f1e; }
 <div id="info"></div>
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/@mediapipe/pose/pose.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh/face_mesh.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js"></script>
 
 <script>
@@ -41,7 +40,7 @@ body { margin:0; overflow:hidden; background:#0a0f1e; }
 const scene = new THREE.Scene();
 
 const camera = new THREE.PerspectiveCamera(70, innerWidth/innerHeight, 0.1, 1000);
-camera.position.z = 6;
+camera.position.z = 5;
 
 const renderer = new THREE.WebGLRenderer({
     canvas:document.getElementById("c"),
@@ -50,20 +49,22 @@ const renderer = new THREE.WebGLRenderer({
 renderer.setSize(innerWidth, innerHeight);
 
 // light
-scene.add(new THREE.AmbientLight(0xffffff, 1.3));
+scene.add(new THREE.AmbientLight(0xffffff, 1.4));
 const light = new THREE.DirectionalLight(0xffffff, 1);
 light.position.set(5,5,5);
 scene.add(light);
 
-// ================= BETTER CARTOON AVATAR =================
-function createAvatar(){
+// ================= HEAD ONLY =================
+function createHead(){
 
     const g = new THREE.Group();
 
+    const skin = new THREE.MeshPhongMaterial({color:0xffd2a1});
+
     // head
     const head = new THREE.Mesh(
-        new THREE.SphereGeometry(0.9,32,32),
-        new THREE.MeshPhongMaterial({color:0xffd1a0})
+        new THREE.SphereGeometry(1,32,32),
+        skin
     );
     head.scale.set(1,1.1,0.9);
     g.add(head);
@@ -72,125 +73,103 @@ function createAvatar(){
     const eyeMat = new THREE.MeshPhongMaterial({color:0xffffff});
     const pupilMat = new THREE.MeshPhongMaterial({color:0x000});
 
-    const eyeGeo = new THREE.SphereGeometry(0.15,16,16);
-    const pupilGeo = new THREE.SphereGeometry(0.07,16,16);
+    const eyeGeo = new THREE.SphereGeometry(0.18,16,16);
+    const pupilGeo = new THREE.SphereGeometry(0.08,16,16);
 
-    let le = new THREE.Mesh(eyeGeo, eyeMat);
-    le.position.set(-0.3,0.3,0.8);
+    const le = new THREE.Mesh(eyeGeo, eyeMat);
+    le.position.set(-0.35,0.35,0.85);
     g.add(le);
 
-    let re = le.clone();
-    re.position.x = 0.3;
+    const re = le.clone();
+    re.position.x = 0.35;
     g.add(re);
 
-    let lp = new THREE.Mesh(pupilGeo, pupilMat);
-    lp.position.set(-0.3,0.3,1.0);
+    const lp = new THREE.Mesh(pupilGeo, pupilMat);
+    lp.position.set(-0.35,0.35,1.05);
     g.add(lp);
 
-    let rp = lp.clone();
-    rp.position.x = 0.3;
+    const rp = lp.clone();
+    rp.position.x = 0.35;
     g.add(rp);
 
-    // body (shoulders added → 你要的关键点)
-    const body = new THREE.Mesh(
-        new THREE.CylinderGeometry(0.6,0.8,1.2,32),
-        new THREE.MeshPhongMaterial({color:0x4a90e2})
+    // mouth
+    const mouth = new THREE.Mesh(
+        new THREE.BoxGeometry(0.5,0.1,0.1),
+        new THREE.MeshPhongMaterial({color:0x331111})
     );
-    body.position.y = -1.5;
-    g.add(body);
+    mouth.position.set(0,-0.6,0.9);
+    g.add(mouth);
 
-    const shoulderL = new THREE.Mesh(
-        new THREE.BoxGeometry(0.6,0.3,0.4),
-        new THREE.MeshPhongMaterial({color:0x3a6fd8})
-    );
-    shoulderL.position.set(-0.8,-1.0,0);
-    g.add(shoulderL);
-
-    const shoulderR = shoulderL.clone();
-    shoulderR.position.x = 0.8;
-    g.add(shoulderR);
+    // ⭐ FIX 1: 强制朝向摄像头（关键）
+    g.rotation.y = Math.PI;
 
     return g;
 }
 
-const avatar = createAvatar();
-scene.add(avatar);
-
-// ⭐⭐⭐ FIX：正确朝向（解决背对问题）
-avatar.rotation.y = Math.PI;
+const head = createHead();
+scene.add(head);
 
 // ================= SMOOTH =================
-let rot = {x:0,y:0};
+let rot = {x:0,y:0,z:0};
 const lerp = (a,b,t)=>a+(b-a)*t;
 
-// ================= POSE (HEAD + SHOULDER) =================
+// ================= FACE =================
 const video = document.getElementById("video");
 
-const pose = new Pose({
-    locateFile:(f)=>`https://cdn.jsdelivr.net/npm/@mediapipe/pose/${f}`
+const faceMesh = new FaceMesh({
+    locateFile:(f)=>`https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh/${f}`
 });
 
-pose.setOptions({
-    modelComplexity:1,
-    smoothLandmarks:true,
-    enableSegmentation:false,
-    minDetectionConfidence:0.6,
-    minTrackingConfidence:0.6
+faceMesh.setOptions({
+    maxNumFaces:1,
+    refineLandmarks:true,
+    minDetectionConfidence:0.5,
+    minTrackingConfidence:0.5
 });
 
-// ================= ANALYSIS =================
-pose.onResults(res=>{
+// pose
+function pose(lm){
 
-    if(!res.poseLandmarks) return;
+    const nose = lm[1];
+    const le = lm[33];
+    const re = lm[263];
+    const chin = lm[152];
 
-    const lm = res.poseLandmarks;
+    return {
+        yaw: (re.x - le.x) * 180,
+        pitch: (chin.y - nose.y) * 200,
+        roll: (re.y - le.y) * 200
+    };
+}
 
-    const nose = lm[0];
-    const lShoulder = lm[11];
-    const rShoulder = lm[12];
+faceMesh.onResults(res=>{
 
-    // ===== HEAD TILT =====
-    const shoulderSlope = rShoulder.y - lShoulder.y;
+    if(!res.multiFaceLandmarks?.length) return;
 
-    // yaw (turn)
-    const yaw = (rShoulder.x - lShoulder.x) * 180;
+    const lm = res.multiFaceLandmarks[0];
+    const p = pose(lm);
 
-    // pitch (lean forward/back)
-    const neckForward = nose.y - (lShoulder.y + rShoulder.y)/2;
+    rot.y = lerp(rot.y, p.yaw, 0.15);
+    rot.x = lerp(rot.x, p.pitch, 0.15);
+    rot.z = lerp(rot.z, p.roll, 0.15);
 
-    rot.y = lerp(rot.y, yaw, 0.1);
-    rot.x = lerp(rot.x, neckForward * 200, 0.1);
+    // ================= FIX CORE =================
+    head.rotation.order = "YXZ";
 
-    // ================= APPLY =================
-    avatar.rotation.y = Math.PI + rot.y * Math.PI/180;
-    avatar.rotation.x = -rot.x * Math.PI/180;
-
-    // ===== posture detection =====
-    let posture = "OK";
-
-    if(neckForward > 0.08){
-        posture = "低头太多";
-    }
-
-    if(Math.abs(shoulderSlope) > 0.05){
-        posture = "坐姿歪";
-        avatar.rotation.z = shoulderSlope * 2;
-    }else{
-        avatar.rotation.z *= 0.9;
-    }
+    head.rotation.y = Math.PI + rot.y * Math.PI / 180;
+    head.rotation.x = -rot.x * Math.PI / 180;
+    head.rotation.z = rot.z * Math.PI / 180;
 
     document.getElementById("info").innerHTML =
     `yaw:${rot.y.toFixed(1)}<br>
      pitch:${rot.x.toFixed(1)}<br>
-     posture:${posture}`;
+     roll:${rot.z.toFixed(1)}`;
 });
 
 // ================= CAMERA =================
-const videoEl = document.getElementById("video");
-
-const cam = new Camera(videoEl,{
+const cam = new Camera(video,{
     onFrame: async ()=>{
-        await pose.send({image:videoEl});
+        await faceMesh.send({image:video});
     },
     width:640,
     height:480
