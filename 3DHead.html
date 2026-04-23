@@ -2,13 +2,13 @@
 <html lang="zh">
 <head>
 <meta charset="UTF-8" />
-<title>卡通坐姿跟随系统</title>
+<title>3D卡通头姿态跟随</title>
 
 <style>
   body {
     margin: 0;
-    background: black;
     overflow: hidden;
+    background: black;
   }
 
   video {
@@ -25,56 +25,14 @@
     left: 0;
   }
 
-  /* ===== 卡通头 ===== */
-  #animal {
-    position: absolute;
-    width: 180px;
-    height: 180px;
-    left: 50%;
-    top: 20%;
-    transform: translateX(-50%);
-    transition: transform 0.06s linear;
-  }
-
-  #face {
-    width: 100%;
-    height: 100%;
-    background: #ffd54f;
-    border-radius: 50%;
-    position: relative;
-    box-shadow: 0 0 20px rgba(255,255,255,0.3);
-  }
-
-  .eye {
-    width: 20px;
-    height: 20px;
-    background: black;
-    border-radius: 50%;
-    position: absolute;
-    top: 55px;
-  }
-
-  #eyeL { left: 45px; }
-  #eyeR { right: 45px; }
-
-  #mouth {
-    width: 60px;
-    height: 20px;
-    border-bottom: 5px solid black;
-    border-radius: 50%;
-    position: absolute;
-    bottom: 40px;
-    left: 50%;
-    transform: translateX(-50%);
-  }
-
   #status {
     position: absolute;
     bottom: 20px;
     width: 100%;
     text-align: center;
     color: white;
-    font-size: 22px;
+    font-size: 20px;
+    z-index: 10;
   }
 </style>
 </head>
@@ -82,53 +40,85 @@
 <body>
 
 <video id="video" autoplay playsinline></video>
-<canvas id="canvas"></canvas>
+<div id="status">加载中...</div>
 
-<div id="animal">
-  <div id="face">
-    <div class="eye" id="eyeL"></div>
-    <div class="eye" id="eyeR"></div>
-    <div id="mouth"></div>
-  </div>
-</div>
-
-<div id="status">初始化中...</div>
-
+<!-- MediaPipe -->
 <script src="https://cdn.jsdelivr.net/npm/@mediapipe/pose/pose.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@mediapipe/drawing_utils/drawing_utils.js"></script>
+
+<!-- Three.js -->
+<script src="https://cdn.jsdelivr.net/npm/three@0.158.0/build/three.min.js"></script>
 
 <script>
 
 const video = document.getElementById("video");
-const canvas = document.getElementById("canvas");
-const ctx = canvas.getContext("2d");
-
-const animal = document.getElementById("animal");
 const statusEl = document.getElementById("status");
 
 let pose;
 
-// =========================
-// 摄像头
-// =========================
-async function startCamera() {
-  const stream = await navigator.mediaDevices.getUserMedia({ video: true });
-  video.srcObject = stream;
-  await new Promise(r => video.onloadedmetadata = r);
-  await video.play();
+// ==========================
+// Three.js 3D场景
+// ==========================
+let scene, camera, renderer, head;
+
+function init3D() {
+
+  scene = new THREE.Scene();
+
+  camera = new THREE.PerspectiveCamera(
+    60,
+    window.innerWidth / window.innerHeight,
+    0.1,
+    1000
+  );
+
+  renderer = new THREE.WebGLRenderer({ alpha: true, antialias: true });
+  renderer.setSize(window.innerWidth, window.innerHeight);
+  renderer.domElement.style.position = "absolute";
+  document.body.appendChild(renderer.domElement);
+
+  // 光源
+  const light1 = new THREE.DirectionalLight(0xffffff, 1);
+  light1.position.set(1, 1, 1);
+  scene.add(light1);
+
+  const light2 = new THREE.AmbientLight(0xffffff, 0.5);
+  scene.add(light2);
+
+  // ==========================
+  // 简单“动物头”（球体代替）
+  // ==========================
+  const geometry = new THREE.SphereGeometry(1, 32, 32);
+  const material = new THREE.MeshStandardMaterial({
+    color: 0xffcc66,
+    roughness: 0.4,
+    metalness: 0.1
+  });
+
+  head = new THREE.Mesh(geometry, material);
+  scene.add(head);
+
+  camera.position.z = 4;
+
+  animate();
 }
 
-// =========================
-// 非线性放大（关键优化）
-// =========================
+function animate() {
+  requestAnimationFrame(animate);
+  renderer.render(scene, camera);
+}
+
+// ==========================
+// 非线性放大（手感优化）
+// ==========================
 function amplify(x) {
-  return Math.sign(x) * Math.pow(Math.abs(x), 1.5);
+  return Math.sign(x) * Math.pow(Math.abs(x), 1.4);
 }
 
-// =========================
-// 头部姿态计算（修正版）
-// =========================
-function getHeadAngles(lm) {
+// ==========================
+// 姿态计算（关键）
+// ==========================
+function getAngles(lm) {
 
   const nose = lm[0];
   const ls = lm[11];
@@ -136,52 +126,63 @@ function getHeadAngles(lm) {
 
   const midY = (ls.y + rs.y) / 2;
 
-  // ✔ 低头（放大 + 非线性）
-  let pitch = amplify(nose.y - midY) * 500;
+  let pitch = amplify(nose.y - midY) * 6;   // 低头
+  let roll  = amplify(rs.y - ls.y) * 6;     // 歪头
+  let yaw   = amplify(0.5 - nose.x) * 6;    // 左右
 
-  // ✔ 左右歪头（修正方向 + 放大）
-  let roll = amplify(rs.y - ls.y) * 500;
+  // 死区（防抖）
+  if (Math.abs(pitch) < 0.02) pitch = 0;
+  if (Math.abs(roll) < 0.02) roll = 0;
+  if (Math.abs(yaw) < 0.02) yaw = 0;
 
-  // ✔ 左右转头（修正镜像 + 放大）
-  let yaw = amplify(0.5 - nose.x) * 500;
-
-  // ===== 死区（防抖动）=====
-  if (Math.abs(pitch) < 3) pitch = 0;
-  if (Math.abs(roll) < 3) roll = 0;
-  if (Math.abs(yaw) < 3) yaw = 0;
-
-  return { pitch, roll, yaw };
+  return { pitch, yaw, roll };
 }
 
-// =========================
-// 驱动卡通头
-// =========================
-function updateAnimal({pitch, roll, yaw}) {
+// ==========================
+// 驱动3D头
+// ==========================
+function updateHead({pitch, yaw, roll}) {
 
-  // 限制最大角度（防翻车）
-  pitch = Math.max(-40, Math.min(40, pitch));
-  roll  = Math.max(-40, Math.min(40, roll));
-  yaw   = Math.max(-40, Math.min(40, yaw));
+  // 限制最大角度
+  const limit = 1.2;
 
-  animal.style.transform =
-    `translateX(-50%)
-     rotate(${roll}deg)
-     rotateX(${-pitch}deg)
-     rotateY(${yaw}deg)`;
+  pitch = Math.max(-limit, Math.min(limit, pitch));
+  yaw   = Math.max(-limit, Math.min(limit, yaw));
+  roll  = Math.max(-limit, Math.min(limit, roll));
 
-  // ===== 状态提示 =====
-  if (Math.abs(pitch) > 15) {
+  // THREE.js 坐标系
+  head.rotation.x = -pitch; // 低头
+  head.rotation.y = yaw;    // 左右转
+  head.rotation.z = roll;   // 歪头
+
+  // 状态
+  if (Math.abs(pitch) > 0.6) {
     statusEl.innerText = "⚠ 低头过多";
-  } else if (Math.abs(roll) > 15) {
+  } else if (Math.abs(roll) > 0.6) {
     statusEl.innerText = "⚠ 头部歪斜";
   } else {
     statusEl.innerText = "✔ 姿势良好";
   }
 }
 
-// =========================
+// ==========================
+// 摄像头
+// ==========================
+async function startCamera() {
+
+  const stream = await navigator.mediaDevices.getUserMedia({
+    video: true
+  });
+
+  video.srcObject = stream;
+
+  await new Promise(r => video.onloadedmetadata = r);
+  await video.play();
+}
+
+// ==========================
 // MediaPipe初始化
-// =========================
+// ==========================
 function initPose() {
 
   pose = new Pose({
@@ -200,37 +201,28 @@ function initPose() {
 
     const lm = res.poseLandmarks;
 
-    // ===== 可视化骨架（调试用）=====
-    canvas.width = video.videoWidth;
-    canvas.height = video.videoHeight;
+    const angles = getAngles(lm);
 
-    ctx.clearRect(0,0,canvas.width,canvas.height);
-    drawConnectors(ctx, lm, Pose.POSE_CONNECTIONS);
-    drawLandmarks(ctx, lm);
-
-    // ===== 计算姿态 =====
-    const angles = getHeadAngles(lm);
-
-    // ===== 驱动卡通头 =====
-    updateAnimal(angles);
+    updateHead(angles);
   });
 
   loop();
 }
 
-// =========================
+// ==========================
 // 循环
-// =========================
+// ==========================
 async function loop() {
   await pose.send({ image: video });
   requestAnimationFrame(loop);
 }
 
-// =========================
+// ==========================
 // 启动
-// =========================
+// ==========================
 (async () => {
   await startCamera();
+  init3D();
   initPose();
 })();
 
