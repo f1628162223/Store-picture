@@ -1,73 +1,74 @@
 <!DOCTYPE html>
 <html lang="zh">
 <head>
-  <meta charset="UTF-8" />
-  <title>AI学习坐姿监督系统</title>
+<meta charset="UTF-8" />
+<title>AI坐姿监督系统</title>
 
-  <style>
-    body {
-      margin: 0;
-      background: black;
-      overflow: hidden;
-      font-family: Arial;
-      color: white;
-    }
+<style>
+  body {
+    margin: 0;
+    background: black;
+    overflow: hidden;
+    font-family: Arial;
+    color: white;
+  }
 
-    video {
-      position: absolute;
-      width: 100vw;
-      height: 100vh;
-      object-fit: cover;
-      transform: scaleX(-1);
-    }
+  video {
+    position: absolute;
+    width: 100vw;
+    height: 100vh;
+    object-fit: cover;
+    transform: scaleX(-1);
+  }
 
-    canvas {
-      position: absolute;
-      top: 0;
-      left: 0;
-    }
+  canvas {
+    position: absolute;
+    top: 0;
+    left: 0;
+  }
 
-    /* 状态栏 */
-    #status {
-      position: absolute;
-      top: 15px;
-      width: 100%;
-      text-align: center;
-      font-size: 20px;
-      color: #00ffcc;
-      font-weight: bold;
-    }
+  /* ===== 全屏大字 UI ===== */
 
-    /* 评分 */
-    #score {
-      position: absolute;
-      top: 50px;
-      width: 100%;
-      text-align: center;
-      font-size: 28px;
-      color: #ffffff;
-      font-weight: bold;
-    }
+  #status {
+    position: absolute;
+    top: 2vh;
+    width: 100%;
+    text-align: center;
+    font-size: 4vh;
+    font-weight: bold;
+    color: #00ffcc;
+    text-shadow: 0 0 10px black;
+  }
 
-    /* 警告 */
-    #warning {
-      position: absolute;
-      bottom: 80px;
-      left: 50%;
-      transform: translateX(-50%);
-      padding: 14px 24px;
+  #score {
+    position: absolute;
+    top: 10vh;
+    width: 100%;
+    text-align: center;
+    font-size: 7vh;
+    font-weight: 900;
+    color: white;
+    text-shadow: 0 0 10px black;
+  }
 
-      font-size: 40px;
-      font-weight: 900;
-      color: #ff2b2b;
+  #warning {
+    position: absolute;
+    bottom: 10vh;
+    left: 50%;
+    transform: translateX(-50%);
+    padding: 2vh 4vh;
 
-      background: rgba(0,0,0,0.6);
-      border: 2px solid #ff2b2b;
-      border-radius: 12px;
+    font-size: 6vh;
+    font-weight: 900;
+    color: red;
 
-      display: none;
-    }
-  </style>
+    background: rgba(0,0,0,0.6);
+    border: 3px solid red;
+    border-radius: 15px;
+
+    display: none;
+  }
+</style>
 </head>
 
 <body>
@@ -75,9 +76,9 @@
 <video id="video" autoplay playsinline></video>
 <canvas id="canvas"></canvas>
 
-<div id="status">初始化摄像头...</div>
-<div id="score">坐姿评分：--</div>
-<div id="warning">⚠ 请保持正确坐姿</div>
+<div id="status">启动中...</div>
+<div id="score">--</div>
+<div id="warning">⚠ 坐姿不正确</div>
 
 <script src="https://cdn.jsdelivr.net/npm/@mediapipe/pose/pose.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@mediapipe/drawing_utils/drawing_utils.js"></script>
@@ -92,38 +93,34 @@ const statusEl = document.getElementById("status");
 const scoreEl = document.getElementById("score");
 const warningEl = document.getElementById("warning");
 
-let badTime = 0;
+let pose;
+let running = false;
 
-// =====================
-// 摄像头
-// =====================
+// =========================
+// 1. 摄像头
+// =========================
 async function startCamera() {
-  try {
-    const stream = await navigator.mediaDevices.getUserMedia({
-      video: { facingMode: "user" },
-      audio: false
-    });
+  const stream = await navigator.mediaDevices.getUserMedia({
+    video: { facingMode: "user" },
+    audio: false
+  });
 
-    video.srcObject = stream;
+  video.srcObject = stream;
 
+  return new Promise(resolve => {
     video.onloadedmetadata = () => {
       video.play();
-      statusEl.innerText = "摄像头已启动，正在检测坐姿...";
-      startAI();
+      resolve();
     };
-
-  } catch (e) {
-    statusEl.innerText = "摄像头启动失败";
-    console.error(e);
-  }
+  });
 }
 
-// =====================
-// 姿态 AI
-// =====================
-function startAI() {
+// =========================
+// 2. 初始化 AI
+// =========================
+function initPose() {
 
-  const pose = new Pose.Pose({
+  pose = new Pose.Pose({
     locateFile: (file) =>
       `https://cdn.jsdelivr.net/npm/@mediapipe/pose/${file}`
   });
@@ -136,25 +133,18 @@ function startAI() {
   });
 
   pose.onResults(onResults);
-
-  async function loop() {
-    await pose.send({ image: video });
-    requestAnimationFrame(loop);
-  }
-
-  loop();
 }
 
-// =====================
-// 坐姿评分逻辑
-// =====================
-function calcScore(landmarks) {
+// =========================
+// 3. 评分逻辑
+// =========================
+function getScore(lm) {
 
-  const nose = landmarks[0];
-  const ls = landmarks[11];
-  const rs = landmarks[12];
-  const lh = landmarks[23];
-  const rh = landmarks[24];
+  const nose = lm[0];
+  const ls = lm[11];
+  const rs = lm[12];
+  const lh = lm[23];
+  const rh = lm[24];
 
   if (!nose || !ls || !rs || !lh || !rh) return 100;
 
@@ -164,31 +154,27 @@ function calcScore(landmarks) {
 
   let score = 100;
 
-  // 1️⃣ 低头 / 前倾
-  if (nose.y > shoulderY + 0.1) score -= 30;
-
-  // 2️⃣ 驼背
-  if (Math.abs(nose.x - shoulderX) > 0.08) score -= 25;
-
-  // 3️⃣ 趴桌（头太低）
-  if (nose.y > hipY - 0.05) score -= 25;
+  if (nose.y > shoulderY + 0.12) score -= 35; // 低头
+  if (Math.abs(nose.x - shoulderX) > 0.1) score -= 25; // 扭头
+  if (nose.y > hipY - 0.05) score -= 30; // 趴桌
 
   return Math.max(0, score);
 }
 
-// =====================
-// 语音提醒
-// =====================
-function speak(text) {
-  const msg = new SpeechSynthesisUtterance(text);
-  msg.lang = "zh-CN";
-  msg.rate = 1;
-  speechSynthesis.speak(msg);
+// =========================
+// 4. AI循环（关键修复点）
+// =========================
+async function runAI() {
+  if (!running) return;
+
+  await pose.send({ image: video });
+
+  setTimeout(runAI, 33); // 30fps稳定循环
 }
 
-// =====================
-// 结果处理
-// =====================
+// =========================
+// 5. 结果
+// =========================
 function onResults(results) {
 
   canvas.width = video.videoWidth;
@@ -201,40 +187,39 @@ function onResults(results) {
   drawConnectors(ctx, results.poseLandmarks, Pose.POSE_CONNECTIONS);
   drawLandmarks(ctx, results.poseLandmarks);
 
-  const score = calcScore(results.poseLandmarks);
+  const score = getScore(results.poseLandmarks);
 
-  scoreEl.innerText = `坐姿评分：${score}`;
+  scoreEl.innerText = score;
 
-  // =====================
-  // 状态判断
-  // =====================
   if (score < 60) {
-
     warningEl.style.display = "block";
-
-    badTime++;
-
-    // 每3秒提醒一次
-    if (badTime % 90 === 0) {
-      speak("请注意坐姿，坐直一点");
-    }
-
+    statusEl.innerText = "状态：需要调整";
   } else {
     warningEl.style.display = "none";
-    badTime = 0;
-  }
-
-  if (score > 85) {
-    statusEl.innerText = "状态：优秀 👍";
-  } else if (score > 60) {
-    statusEl.innerText = "状态：一般";
-  } else {
-    statusEl.innerText = "状态：需要调整 ⚠";
+    statusEl.innerText = "状态：良好";
   }
 }
 
-// =====================
-startCamera();
+// =========================
+// 6. 启动流程（修复关键点）
+// =========================
+async function start() {
+
+  statusEl.innerText = "请求摄像头权限...";
+
+  await startCamera();
+
+  statusEl.innerText = "加载AI模型...";
+
+  initPose();
+
+  statusEl.innerText = "检测中...";
+
+  running = true;
+  runAI();
+}
+
+start();
 
 </script>
 
