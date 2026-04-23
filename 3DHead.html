@@ -339,43 +339,36 @@
 
                 faceMesh.onResults(onResults);
 
-                // 首先请求摄像头权限
+                // 创建 Camera 实例
+                const camera_utils_camera = new Camera(video, {
+                    onFrame: async () => {
+                        await faceMesh.send({ image: video });
+                    },
+                    width: 1280,
+                    height: 720
+                });
+
+                // 启动摄像头 - 这会触发权限请求
                 try {
-                    console.log('正在请求摄像头权限...');
-                    const stream = await navigator.mediaDevices.getUserMedia({ 
-                        video: { width: 1280, height: 720 } 
-                    });
-                    console.log('摄像头权限已获得');
-                    
-                    // 停止流，将在 Camera 类中重新使用
-                    stream.getTracks().forEach(track => track.stop());
-
-                    // 现在初始化 Camera
-                    const camera_utils_camera = new Camera(video, {
-                        onFrame: async () => {
-                            await faceMesh.send({ image: video });
-                        },
-                        width: 1280,
-                        height: 720
-                    });
-
-                    console.log('正在初始化 Camera...');
-                    await camera_utils_camera.initialize();
-                    console.log('Camera 初始化成功');
-                    
-                    setLoadingStep('step3', true);
-                    setLoadingStep('step4', true);
-                    loadingDiv.classList.add('hidden');
+                    console.log('正在启动摄像头...');
                     camera_utils_camera.start();
+                    console.log('摄像头已启动');
+                    
+                    // 稍等片刻，然后隐藏加载界面
+                    setTimeout(() => {
+                        setLoadingStep('step3', true);
+                        setLoadingStep('step4', true);
+                        loadingDiv.classList.add('hidden');
+                    }, 500);
                     
                 } catch (error) {
-                    console.error('摄像头初始化失败:', error);
+                    console.error('摄像头启动失败:', error);
                     if (error.name === 'NotAllowedError') {
                         showError('您拒绝了摄像头权限访问。请重新加载页面并允许摄像头权限。');
                     } else if (error.name === 'NotFoundError') {
                         showError('未检测到摄像头设备。请检查硬件连接。');
                     } else {
-                        showError('摄像头初始化失败: ' + error.message);
+                        showError('摄像头启动失败: ' + error.message);
                     }
                 }
 
