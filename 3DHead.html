@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<title>Head Tracking FIX</title>
+<title>FIX HEAD ORIENTATION</title>
 
 <style>
 body { margin:0; overflow:hidden; background:#0a0f1e; }
@@ -11,8 +11,8 @@ body { margin:0; overflow:hidden; background:#0a0f1e; }
     right:10px;
     top:10px;
     width:180px;
-    border-radius:10px;
     border:2px solid white;
+    border-radius:10px;
 }
 #info{
     position:absolute;
@@ -54,14 +54,17 @@ const light = new THREE.DirectionalLight(0xffffff, 1);
 light.position.set(5,5,5);
 scene.add(light);
 
-// ================= HEAD ONLY =================
+// ================= ROOT FIX（关键） =================
+const headRoot = new THREE.Group();
+scene.add(headRoot);
+
+// ================= HEAD =================
 function createHead(){
 
     const g = new THREE.Group();
 
     const skin = new THREE.MeshPhongMaterial({color:0xffd2a1});
 
-    // head
     const head = new THREE.Mesh(
         new THREE.SphereGeometry(1,32,32),
         skin
@@ -69,7 +72,6 @@ function createHead(){
     head.scale.set(1,1.1,0.9);
     g.add(head);
 
-    // eyes
     const eyeMat = new THREE.MeshPhongMaterial({color:0xffffff});
     const pupilMat = new THREE.MeshPhongMaterial({color:0x000});
 
@@ -92,22 +94,13 @@ function createHead(){
     rp.position.x = 0.35;
     g.add(rp);
 
-    // mouth
-    const mouth = new THREE.Mesh(
-        new THREE.BoxGeometry(0.5,0.1,0.1),
-        new THREE.MeshPhongMaterial({color:0x331111})
-    );
-    mouth.position.set(0,-0.6,0.9);
-    g.add(mouth);
-
-    // ⭐ FIX 1: 强制朝向摄像头（关键）
-    g.rotation.y = Math.PI;
-
     return g;
 }
 
 const head = createHead();
-scene.add(head);
+
+// 👉 放进 root
+headRoot.add(head);
 
 // ================= SMOOTH =================
 let rot = {x:0,y:0,z:0};
@@ -127,9 +120,7 @@ faceMesh.setOptions({
     minTrackingConfidence:0.5
 });
 
-// pose
 function pose(lm){
-
     const nose = lm[1];
     const le = lm[33];
     const re = lm[263];
@@ -156,7 +147,7 @@ faceMesh.onResults(res=>{
     // ================= FIX CORE =================
     head.rotation.order = "YXZ";
 
-    head.rotation.y = Math.PI + rot.y * Math.PI / 180;
+    head.rotation.y = rot.y * Math.PI / 180;
     head.rotation.x = -rot.x * Math.PI / 180;
     head.rotation.z = rot.z * Math.PI / 180;
 
