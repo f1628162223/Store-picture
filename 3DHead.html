@@ -2,7 +2,7 @@
 <html lang="zh">
 <head>
 <meta charset="UTF-8" />
-<title>坐姿检测系统</title>
+<title>学习坐姿检测系统</title>
 
 <style>
   body {
@@ -27,6 +27,7 @@
     left: 0;
   }
 
+  /* 分数 */
   #score {
     position: absolute;
     top: 5vh;
@@ -34,15 +35,17 @@
     text-align: center;
     font-size: 10vh;
     font-weight: 900;
+    text-shadow: 0 0 10px black;
   }
 
+  /* 提示 */
   #warning {
     position: absolute;
     bottom: 10vh;
     left: 50%;
     transform: translateX(-50%);
 
-    font-size: 6vh;
+    font-size: 5.5vh;
     font-weight: 900;
     color: red;
 
@@ -52,6 +55,7 @@
 
     padding: 2vh 4vh;
     display: none;
+    text-align: center;
   }
 </style>
 </head>
@@ -77,11 +81,11 @@ const scoreEl = document.getElementById("score");
 const warningEl = document.getElementById("warning");
 
 let pose;
-let badFrames = 0; // 🔥 连续判断
+let badFrames = 0;
 
-// =====================
+// =========================
 // 摄像头
-// =====================
+// =========================
 async function startCamera() {
   const stream = await navigator.mediaDevices.getUserMedia({
     video: { facingMode: "user" },
@@ -98,9 +102,9 @@ async function startCamera() {
   });
 }
 
-// =====================
-// 镜像
-// =====================
+// =========================
+// 镜像修复
+// =========================
 function mirror(lm) {
   return lm.map(p => ({
     ...p,
@@ -108,9 +112,9 @@ function mirror(lm) {
   }));
 }
 
-// =====================
-// 🔥 高精度坐姿判断
-// =====================
+// =========================
+// ⭐ 学习模式核心逻辑（重点修复）
+// =========================
 function analyze(lm) {
 
   const nose = lm[0];
@@ -130,30 +134,32 @@ function analyze(lm) {
   let score = 100;
   let reasons = [];
 
-  // =====================
-  // 🔴 1. 头前伸（更灵敏）
-  // =====================
-  const headForward = Math.abs(nose.x - shoulderX);
-  if (headForward > 0.06) {
-    score -= 35;
-    reasons.push("头前倾");
+  // =========================
+  // 🟡 允许：正常写作低头（不扣分）
+  // =========================
+
+  const headDrop = nose.y - shoulderY;
+
+  // =========================
+  // 🔴 1. 真正异常：身体整体前倾（关键）
+  // =========================
+  const bodyLean = Math.abs(nose.x - shoulderX);
+
+  const isForwardBad = bodyLean > 0.14 && headDrop > 0.18;
+
+  if (isForwardBad) {
+    score -= 45;
+    reasons.push("身体前倾");
   }
 
-  // =====================
-  // 🔴 2. 驼背（增强）
-  // =====================
-  const bodyLean = nose.y - shoulderY;
-  if (bodyLean > 0.10) {
-    score -= 35;
-    reasons.push("驼背");
-  }
+  // =========================
+  // 🔴 2. 趴桌（强异常）
+  // =========================
+  const isTooLow = nose.y > hipY - 0.05;
 
-  // =====================
-  // 🔴 3. 趴桌（更敏感）
-  // =====================
-  if (nose.y > hipY - 0.08) {
-    score -= 40;
-    reasons.push("趴桌");
+  if (isTooLow) {
+    score -= 50;
+    reasons.push("趴桌姿势");
   }
 
   score = Math.max(0, score);
@@ -165,9 +171,9 @@ function analyze(lm) {
   };
 }
 
-// =====================
+// =========================
 // 初始化
-// =====================
+// =========================
 function initPose() {
 
   pose = new Pose({
@@ -187,17 +193,17 @@ function initPose() {
   loop();
 }
 
-// =====================
+// =========================
 // 循环
-// =====================
+// =========================
 async function loop() {
   await pose.send({ image: video });
-  setTimeout(loop, 30);
+  setTimeout(loop, 33);
 }
 
-// =====================
-// 结果
-// =====================
+// =========================
+// 结果处理
+// =========================
 function onResults(results) {
 
   canvas.width = video.videoWidth;
@@ -214,21 +220,21 @@ function onResults(results) {
 
   const { score, bad, msg } = analyze(lm);
 
-  // =====================
+  // =========================
   // 分数
-  // =====================
+  // =========================
   scoreEl.innerText = score;
 
-  // =====================
-  // 🔥 连续3帧才报警（防误报）
-  // =====================
+  // =========================
+  // 防误报（必须连续触发）
+  // =========================
   if (bad) {
     badFrames++;
   } else {
     badFrames = 0;
   }
 
-  if (badFrames > 5) {
+  if (badFrames > 6) {
     warningEl.style.display = "block";
     warningEl.innerText = "⚠ " + msg;
   } else {
@@ -236,7 +242,11 @@ function onResults(results) {
   }
 }
 
-// =====================
+// =========================
+// 启动
+// =========================
+let badFrames = 0;
+
 async function start() {
   await startCamera();
   initPose();
