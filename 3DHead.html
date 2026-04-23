@@ -319,26 +319,6 @@
                 const video = document.getElementById('video');
                 const loadingDiv = document.getElementById('loading');
 
-                setLoadingStep('step3');
-
-                const faceMesh = new FaceMesh({
-                    lockedVideoProperties: {
-                        width: 1280,
-                        height: 720
-                    }
-                });
-
-                faceMesh.setOptions({
-                    maxNumFaces: 1,
-                    refineLandmarks: true,
-                    minDetectionConfidence: 0.5,
-                    minTrackingConfidence: 0.5
-                });
-
-                let faceDetected = false;
-
-                faceMesh.onResults(onResults);
-
                 // 创建 Camera 实例
                 const camera_utils_camera = new Camera(video, {
                     onFrame: async () => {
@@ -370,44 +350,6 @@
                     } else {
                         showError('摄像头启动失败: ' + error.message);
                     }
-                }
-
-                // ============= FACE LANDMARK PROCESSING =============
-                function onResults(results) {
-                    if (!results.multiFaceLandmarks || results.multiFaceLandmarks.length === 0) {
-                        faceDetected = false;
-                        return;
-                    }
-
-                    faceDetected = true;
-                    const landmarks = results.multiFaceLandmarks[0];
-
-                    // Key landmark indices for head pose estimation
-                    const noseTip = landmarks[1];      // Tip of nose (front center)
-                    const foreheadMid = landmarks[10]; // Forehead
-                    const chinMid = landmarks[152];    // Chin
-                    const leftCheek = landmarks[234];  // Left cheek
-                    const rightCheek = landmarks[454]; // Right cheek
-
-                    // Calculate head rotation angles from landmarks
-                    // YAW (left-right rotation)
-                    const cheekDiff = rightCheek.x - leftCheek.x;
-                    smoothing.targetYaw = (cheekDiff - 0.5) * 60; // Range: -60 to 60 degrees
-
-                    // PITCH (up-down rotation)
-                    const verticalDiff = noseTip.y - foreheadMid.y;
-                    smoothing.targetPitch = verticalDiff * 150; // Invert for intuitive control
-
-                    // ROLL (head tilt)
-                    const leftEar = landmarks[133];   // Left ear
-                    const rightEar = landmarks[362];  // Right ear
-                    const earDiff = rightEar.y - leftEar.y;
-                    smoothing.targetRoll = earDiff * 100;
-
-                    // Clamp values
-                    smoothing.targetYaw = Math.max(-45, Math.min(45, smoothing.targetYaw));
-                    smoothing.targetPitch = Math.max(-40, Math.min(40, smoothing.targetPitch));
-                    smoothing.targetRoll = Math.max(-30, Math.min(30, smoothing.targetRoll));
                 }
 
                 // ============= LINEAR INTERPOLATION (LERP) =============
@@ -447,11 +389,6 @@
                         document.getElementById('fps').textContent = frameCount;
                         frameCount = 0;
                         lastTime = currentTime;
-                    }
-
-                    // Gentle continuous rotation when no face detected
-                    if (!faceDetected) {
-                        headGroup.rotation.y += 0.01;
                     }
 
                     renderer.render(scene, camera);
