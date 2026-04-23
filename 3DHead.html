@@ -1,42 +1,25 @@
 <!DOCTYPE html>
-<html lang="zh">
+<html lang="en">
 <head>
 <meta charset="UTF-8">
-<title>坐姿检测修复版</title>
+<title>FIX HEAD ORIENTATION</title>
 
 <style>
-body {
-    margin: 0;
-    background: #000;
-    overflow: hidden;
-    color: white;
-    font-family: sans-serif;
+body { margin:0; overflow:hidden; background:#0a0f1e; }
+#video{
+    position:absolute;
+    right:10px;
+    top:10px;
+    width:180px;
+    border:2px solid white;
+    border-radius:10px;
 }
-
-#video {
-    position: absolute;
-    width: 240px;
-    right: 10px;
-    top: 10px;
-    border-radius: 10px;
-    border: 2px solid white;
-    transform: scaleX(-1);
-}
-
-#canvas {
-    position: absolute;
-    top: 0;
-    left: 0;
-}
-
-#warning {
-    position: absolute;
-    bottom: 40px;
-    width: 100%;
-    text-align: center;
-    font-size: 30px;
-    color: red;
-    display: none;
+#info{
+    position:absolute;
+    left:10px;
+    top:10px;
+    color:white;
+    font-family:monospace;
 }
 </style>
 </head>
@@ -44,102 +27,158 @@ body {
 <body>
 
 <video id="video" autoplay playsinline></video>
-<canvas id="canvas"></canvas>
+<canvas id="c"></canvas>
+<div id="info"></div>
 
-<div id="warning">⚠️ 坐姿不端正！请坐直</div>
-
-<!-- MediaPipe -->
-<script src="https://cdn.jsdelivr.net/npm/@mediapipe/pose/pose.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh/face_mesh.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/@mediapipe/drawing_utils/drawing_utils.js"></script>
 
 <script>
 
-const videoElement = document.getElementById("video");
-const canvasElement = document.getElementById("canvas");
-const ctx = canvasElement.getContext("2d");
-const warning = document.getElementById("warning");
+// ================= SCENE =================
+const scene = new THREE.Scene();
 
-// ===== Pose 初始化 =====
-const pose = new Pose({
-    locateFile: (file) =>
-        `https://cdn.jsdelivr.net/npm/@mediapipe/pose/${file}`
+const camera = new THREE.PerspectiveCamera(70, innerWidth/innerHeight, 0.1, 1000);
+camera.position.z = 5;
+
+const renderer = new THREE.WebGLRenderer({
+    canvas:document.getElementById("c"),
+    antialias:true
 });
+renderer.setSize(innerWidth, innerHeight);
 
-pose.setOptions({
-    modelComplexity: 1,
-    smoothLandmarks: true,
-    minDetectionConfidence: 0.6,
-    minTrackingConfidence: 0.6
-});
+// light
+scene.add(new THREE.AmbientLight(0xffffff, 1.4));
+const light = new THREE.DirectionalLight(0xffffff, 1);
+light.position.set(5,5,5);
+scene.add(light);
 
-function isBadPosture(lm){
+// ================= ROOT FIX（关键） =================
+const headRoot = new THREE.Group();
+scene.add(headRoot);
 
-    const nose = lm[0];
-    const ls = lm[11];
-    const rs = lm[12];
-    const lh = lm[23];
-    const rh = lm[24];
+// ================= HEAD =================
+function createHead(){
 
-    const shoulderX = (ls.x + rs.x) / 2;
+    const g = new THREE.Group();
 
-    const headForward = Math.abs(nose.x - shoulderX);
+    const skin = new THREE.MeshPhongMaterial({color:0xffd2a1});
 
-    const shoulderCenterY = (ls.y + rs.y)/2;
-    const hipCenterY = (lh.y + rh.y)/2;
+    const head = new THREE.Mesh(
+        new THREE.SphereGeometry(1,32,32),
+        skin
+    );
+    head.scale.set(1,1.1,0.9);
+    g.add(head);
 
-    const lean = shoulderCenterY - hipCenterY;
+    const eyeMat = new THREE.MeshPhongMaterial({color:0xffffff});
+    const pupilMat = new THREE.MeshPhongMaterial({color:0x000});
 
-    return headForward > 0.08 || lean > 0.25;
+    const eyeGeo = new THREE.SphereGeometry(0.18,16,16);
+    const pupilGeo = new THREE.SphereGeometry(0.08,16,16);
+
+    const le = new THREE.Mesh(eyeGeo, eyeMat);
+    le.position.set(-0.35,0.35,0.85);
+    g.add(le);
+
+    const re = le.clone();
+    re.position.x = 0.35;
+    g.add(re);
+
+    const lp = new THREE.Mesh(pupilGeo, pupilMat);
+    lp.position.set(-0.35,0.35,1.05);
+    g.add(lp);
+
+    const rp = lp.clone();
+    rp.position.x = 0.35;
+    g.add(rp);
+
+    return g;
 }
 
-pose.onResults(results => {
+const head = createHead();
 
-    canvasElement.width = videoElement.videoWidth;
-    canvasElement.height = videoElement.videoHeight;
+// 👉 放进 root
+headRoot.add(head);
 
-    ctx.clearRect(0,0,canvasElement.width,canvasElement.height);
+// ================= SMOOTH =================
+let rot = {x:0,y:0,z:0};
+const lerp = (a,b,t)=>a+(b-a)*t;
 
-    if(results.poseLandmarks){
+// ================= FACE =================
+const video = document.getElementById("video");
 
-        drawConnectors(ctx, results.poseLandmarks, Pose.POSE_CONNECTIONS);
-        drawLandmarks(ctx, results.poseLandmarks);
-
-        if(isBadPosture(results.poseLandmarks)){
-            warning.style.display = "block";
-        }else{
-            warning.style.display = "none";
-        }
-    }
+const faceMesh = new FaceMesh({
+    locateFile:(f)=>`https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh/${f}`
 });
 
-// ====== ⭐⭐⭐ 关键修复：用户点击触发摄像头 ======
-async function startCamera(){
+faceMesh.setOptions({
+    maxNumFaces:1,
+    refineLandmarks:true,
+    minDetectionConfidence:0.5,
+    minTrackingConfidence:0.5
+});
 
-    const stream = await navigator.mediaDevices.getUserMedia({
-        video: true,
-        audio: false
-    });
+function pose(lm){
+    const nose = lm[1];
+    const le = lm[33];
+    const re = lm[263];
+    const chin = lm[152];
 
-    videoElement.srcObject = stream;
-
-    await videoElement.play();
-
-    const camera = new Camera.Camera(videoElement, {
-        onFrame: async () => {
-            await pose.send({image: videoElement});
-        },
-        width: 640,
-        height: 480
-    });
-
-    camera.start();
+    return {
+        yaw: (re.x - le.x) * 180,
+        pitch: (chin.y - nose.y) * 200,
+        roll: (re.y - le.y) * 200
+    };
 }
 
-// ===== 自动点击启动（必须用户触发）=====
-document.body.addEventListener("click", async () => {
-    if(videoElement.srcObject) return;
-    await startCamera();
+faceMesh.onResults(res=>{
+
+    if(!res.multiFaceLandmarks?.length) return;
+
+    const lm = res.multiFaceLandmarks[0];
+    const p = pose(lm);
+
+    rot.y = lerp(rot.y, p.yaw, 0.15);
+    rot.x = lerp(rot.x, p.pitch, 0.15);
+    rot.z = lerp(rot.z, p.roll, 0.15);
+
+    // ================= FIX CORE =================
+    head.rotation.order = "YXZ";
+
+    head.rotation.y = rot.y * Math.PI / 180;
+    head.rotation.x = -rot.x * Math.PI / 180;
+    head.rotation.z = rot.z * Math.PI / 180;
+
+    document.getElementById("info").innerHTML =
+    `yaw:${rot.y.toFixed(1)}<br>
+     pitch:${rot.x.toFixed(1)}<br>
+     roll:${rot.z.toFixed(1)}`;
+});
+
+// ================= CAMERA =================
+const cam = new Camera(video,{
+    onFrame: async ()=>{
+        await faceMesh.send({image:video});
+    },
+    width:640,
+    height:480
+});
+
+cam.start();
+
+// ================= LOOP =================
+function animate(){
+    requestAnimationFrame(animate);
+    renderer.render(scene,camera);
+}
+animate();
+
+addEventListener("resize",()=>{
+    camera.aspect = innerWidth/innerHeight;
+    camera.updateProjectionMatrix();
+    renderer.setSize(innerWidth,innerHeight);
 });
 
 </script>
