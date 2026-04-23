@@ -2,7 +2,7 @@
 <html lang="zh">
 <head>
 <meta charset="UTF-8" />
-<title>坐姿评分系统</title>
+<title>坐姿检测系统</title>
 
 <style>
   body {
@@ -27,7 +27,6 @@
     left: 0;
   }
 
-  /* 分数 */
   #score {
     position: absolute;
     top: 5vh;
@@ -35,27 +34,24 @@
     text-align: center;
     font-size: 10vh;
     font-weight: 900;
-    text-shadow: 0 0 10px black;
   }
 
-  /* 原因提示 */
   #warning {
     position: absolute;
     bottom: 10vh;
     left: 50%;
     transform: translateX(-50%);
 
-    font-size: 5vh;
+    font-size: 6vh;
     font-weight: 900;
-    color: #ff3b3b;
+    color: red;
 
-    background: rgba(0,0,0,0.65);
-    border: 3px solid #ff3b3b;
-    border-radius: 14px;
+    background: rgba(0,0,0,0.7);
+    border: 3px solid red;
+    border-radius: 12px;
 
     padding: 2vh 4vh;
     display: none;
-    text-align: center;
   }
 </style>
 </head>
@@ -81,13 +77,12 @@ const scoreEl = document.getElementById("score");
 const warningEl = document.getElementById("warning");
 
 let pose;
-let running = false;
+let badFrames = 0; // 🔥 连续判断
 
-// ======================
+// =====================
 // 摄像头
-// ======================
+// =====================
 async function startCamera() {
-
   const stream = await navigator.mediaDevices.getUserMedia({
     video: { facingMode: "user" },
     audio: false
@@ -103,9 +98,9 @@ async function startCamera() {
   });
 }
 
-// ======================
-// 镜像修复
-// ======================
+// =====================
+// 镜像
+// =====================
 function mirror(lm) {
   return lm.map(p => ({
     ...p,
@@ -113,10 +108,10 @@ function mirror(lm) {
   }));
 }
 
-// ======================
-// 评分 + 原因分析（关键升级）
-// ======================
-function analyzePosture(lm) {
+// =====================
+// 🔥 高精度坐姿判断
+// =====================
+function analyze(lm) {
 
   const nose = lm[0];
   const ls = lm[11];
@@ -125,7 +120,7 @@ function analyzePosture(lm) {
   const rh = lm[24];
 
   if (!nose || !ls || !rs || !lh || !rh) {
-    return { score: 100, reasons: [] };
+    return { score: 100, bad: false, msg: "" };
   }
 
   const shoulderX = (ls.x + rs.x) / 2;
@@ -135,33 +130,44 @@ function analyzePosture(lm) {
   let score = 100;
   let reasons = [];
 
-  // 🔴 前倾
-  if (Math.abs(nose.x - shoulderX) > 0.1) {
-    score -= 30;
-    reasons.push("头部前倾");
+  // =====================
+  // 🔴 1. 头前伸（更灵敏）
+  // =====================
+  const headForward = Math.abs(nose.x - shoulderX);
+  if (headForward > 0.06) {
+    score -= 35;
+    reasons.push("头前倾");
   }
 
-  // 🔴 驼背
-  if (nose.y > shoulderY + 0.12) {
-    score -= 30;
-    reasons.push("身体前弯（驼背）");
+  // =====================
+  // 🔴 2. 驼背（增强）
+  // =====================
+  const bodyLean = nose.y - shoulderY;
+  if (bodyLean > 0.10) {
+    score -= 35;
+    reasons.push("驼背");
   }
 
-  // 🔴 趴桌
-  if (nose.y > hipY - 0.05) {
+  // =====================
+  // 🔴 3. 趴桌（更敏感）
+  // =====================
+  if (nose.y > hipY - 0.08) {
     score -= 40;
-    reasons.push("距离桌面过近（趴桌）");
+    reasons.push("趴桌");
   }
+
+  score = Math.max(0, score);
 
   return {
-    score: Math.max(0, score),
-    reasons
+    score,
+    bad: score < 70,
+    msg: reasons.join(" / ")
   };
 }
 
-// ======================
+// =====================
 // 初始化
-// ======================
+// =====================
 function initPose() {
 
   pose = new Pose({
@@ -172,30 +178,26 @@ function initPose() {
   pose.setOptions({
     modelComplexity: 1,
     smoothLandmarks: true,
-    minDetectionConfidence: 0.5,
-    minTrackingConfidence: 0.5
+    minDetectionConfidence: 0.4,
+    minTrackingConfidence: 0.4
   });
 
   pose.onResults(onResults);
 
-  running = true;
   loop();
 }
 
-// ======================
+// =====================
 // 循环
-// ======================
+// =====================
 async function loop() {
-  if (!running) return;
-
   await pose.send({ image: video });
-
-  setTimeout(loop, 33);
+  setTimeout(loop, 30);
 }
 
-// ======================
-// 结果处理
-// ======================
+// =====================
+// 结果
+// =====================
 function onResults(results) {
 
   canvas.width = video.videoWidth;
@@ -210,27 +212,31 @@ function onResults(results) {
   drawConnectors(ctx, lm, Pose.POSE_CONNECTIONS);
   drawLandmarks(ctx, lm);
 
-  const { score, reasons } = analyzePosture(lm);
+  const { score, bad, msg } = analyze(lm);
 
-  // ======================
-  // 1. 显示分数（修复你问题1）
-  // ======================
+  // =====================
+  // 分数
+  // =====================
   scoreEl.innerText = score;
 
-  // ======================
-  // 2. 显示原因（修复你问题2）
-  // ======================
-  if (score < 60 && reasons.length > 0) {
+  // =====================
+  // 🔥 连续3帧才报警（防误报）
+  // =====================
+  if (bad) {
+    badFrames++;
+  } else {
+    badFrames = 0;
+  }
+
+  if (badFrames > 5) {
     warningEl.style.display = "block";
-    warningEl.innerText = "⚠ " + reasons.join(" / ");
+    warningEl.innerText = "⚠ " + msg;
   } else {
     warningEl.style.display = "none";
   }
 }
 
-// ======================
-// 启动
-// ======================
+// =====================
 async function start() {
   await startCamera();
   initPose();
