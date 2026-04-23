@@ -2,14 +2,14 @@
 <html lang="zh">
 <head>
 <meta charset="UTF-8" />
-<title>坐姿检测</title>
+<title>卡通头姿态跟随</title>
 
 <style>
   body {
     margin: 0;
-    background: black;
+    background: #000;
     overflow: hidden;
-    font-family: Arial;
+    font-family: sans-serif;
   }
 
   video {
@@ -26,27 +26,56 @@
     left: 0;
   }
 
-  #score {
+  /* ===== 卡通头 ===== */
+  #animal {
     position: absolute;
-    top: 5vh;
-    width: 100%;
-    text-align: center;
-    font-size: 10vh;
-    color: white;
+    width: 180px;
+    height: 180px;
+    left: 50%;
+    top: 20%;
+    transform: translateX(-50%);
+    transition: transform 0.08s linear;
   }
 
-  #warning {
+  #face {
+    width: 100%;
+    height: 100%;
+    background: #ffd54f;
+    border-radius: 50%;
+    position: relative;
+    box-shadow: 0 0 20px rgba(255,255,255,0.3);
+  }
+
+  .eye {
+    width: 20px;
+    height: 20px;
+    background: black;
+    border-radius: 50%;
     position: absolute;
-    bottom: 10vh;
+    top: 55px;
+  }
+
+  #eyeL { left: 45px; }
+  #eyeR { right: 45px; }
+
+  #mouth {
+    width: 60px;
+    height: 20px;
+    border-bottom: 5px solid black;
+    border-radius: 50%;
+    position: absolute;
+    bottom: 40px;
     left: 50%;
     transform: translateX(-50%);
-    font-size: 5vh;
-    color: red;
-    background: rgba(0,0,0,0.7);
-    padding: 20px 40px;
-    border-radius: 10px;
-    display: none;
+  }
+
+  #status {
+    position: absolute;
+    bottom: 20px;
+    width: 100%;
     text-align: center;
+    color: white;
+    font-size: 20px;
   }
 </style>
 </head>
@@ -56,8 +85,15 @@
 <video id="video" autoplay playsinline></video>
 <canvas id="canvas"></canvas>
 
-<div id="score">--</div>
-<div id="warning"></div>
+<div id="animal">
+  <div id="face">
+    <div class="eye" id="eyeL"></div>
+    <div class="eye" id="eyeR"></div>
+    <div id="mouth"></div>
+  </div>
+</div>
+
+<div id="status">初始化中...</div>
 
 <script src="https://cdn.jsdelivr.net/npm/@mediapipe/pose/pose.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@mediapipe/drawing_utils/drawing_utils.js"></script>
@@ -68,17 +104,14 @@ const video = document.getElementById("video");
 const canvas = document.getElementById("canvas");
 const ctx = canvas.getContext("2d");
 
-const scoreEl = document.getElementById("score");
-const warningEl = document.getElementById("warning");
+const animal = document.getElementById("animal");
+const statusEl = document.getElementById("status");
 
 let pose;
-let base = null;
-let baseBuffer = [];
-let badFrames = 0;
 
-// =====================
+// =========================
 // 摄像头
-// =====================
+// =========================
 async function startCamera() {
   const stream = await navigator.mediaDevices.getUserMedia({ video: true });
   video.srcObject = stream;
@@ -86,106 +119,56 @@ async function startCamera() {
   await video.play();
 }
 
-// =====================
-// 镜像
-// =====================
-function mirror(lm) {
-  return lm.map(p => ({ ...p, x: 1 - p.x }));
-}
-
-// =====================
-// 自动校准（前40帧）
-// =====================
-function autoCalibrate(lm) {
-
-  if (base) return;
-
-  baseBuffer.push(lm);
-
-  if (baseBuffer.length < 40) {
-    scoreEl.innerText = "请保持坐直";
-    return;
-  }
-
-  base = lm;
-  scoreEl.innerText = "100";
-}
-
-// =====================
-// 核心检测（稳定版）
-// =====================
-function analyze(lm) {
-
-  if (!base) return;
+// =========================
+// 姿态计算（核心）
+// =========================
+function getHeadAngles(lm) {
 
   const nose = lm[0];
   const ls = lm[11];
   const rs = lm[12];
 
-  const baseNose = base[0];
-  const baseLs = base[11];
-  const baseRs = base[12];
+  // 左右歪头（roll）
+  const roll = (ls.y - rs.y) * 100;
 
-  let score = 100;
-  let reasons = [];
+  // 低头（pitch）
+  const pitch = (nose.y - (ls.y + rs.y)/2) * 100;
 
-  // =====================
-  // 1. 头前倾
-  // =====================
-  const forward = Math.abs(nose.x - baseNose.x);
-  if (forward > 0.045) {
-    score -= 35;
-    reasons.push("头前倾");
-  }
+  // 左右转头（yaw 简化）
+  const yaw = (nose.x - 0.5) * 100;
 
-  // =====================
-  // 2. 低头
-  // =====================
-  const headDown = nose.y - baseNose.y;
-  if (headDown > 0.06) {
-    score -= 25;
-    reasons.push("低头过多");
-  }
+  return { pitch, roll, yaw };
+}
 
-  // =====================
-  // 3. 驼背（肩膀下沉）
-  // =====================
-  const shoulderNow = (ls.y + rs.y)/2;
-  const shoulderBase = (baseLs.y + baseRs.y)/2;
+// =========================
+// 动画映射（关键）
+// =========================
+function updateAnimal({pitch, roll, yaw}) {
 
-  if (shoulderNow - shoulderBase > 0.04) {
-    score -= 30;
-    reasons.push("驼背");
-  }
+  // 限制范围
+  pitch = Math.max(-30, Math.min(30, pitch));
+  roll  = Math.max(-30, Math.min(30, roll));
+  yaw   = Math.max(-30, Math.min(30, yaw));
 
-  // =====================
-  // 4. 身体歪斜
-  // =====================
-  if (Math.abs(ls.y - rs.y) > 0.045) {
-    score -= 25;
-    reasons.push("身体歪斜");
-  }
+  animal.style.transform =
+    `translateX(-50%) 
+     rotate(${roll}deg) 
+     rotateX(${-pitch}deg)
+     rotateY(${yaw}deg)`;
 
-  score = Math.max(0, score);
-  scoreEl.innerText = score;
-
-  // =====================
-  // 报警稳定器
-  // =====================
-  if (score < 75) badFrames++;
-  else badFrames = 0;
-
-  if (badFrames > 3) {
-    warningEl.style.display = "block";
-    warningEl.innerText = "⚠ " + reasons.join(" / ");
+  // 状态提示
+  if (Math.abs(pitch) > 15) {
+    statusEl.innerText = "⚠ 低头过多";
+  } else if (Math.abs(roll) > 15) {
+    statusEl.innerText = "⚠ 头部歪斜";
   } else {
-    warningEl.style.display = "none";
+    statusEl.innerText = "✔ 姿势良好";
   }
 }
 
-// =====================
-// 初始化
-// =====================
+// =========================
+// MediaPipe初始化
+// =========================
 function initPose() {
 
   pose = new Pose({
@@ -202,31 +185,37 @@ function initPose() {
 
     if (!res.poseLandmarks) return;
 
-    const lm = mirror(res.poseLandmarks);
+    const lm = res.poseLandmarks;
 
+    // 可视化（可关掉）
     canvas.width = video.videoWidth;
     canvas.height = video.videoHeight;
 
     ctx.clearRect(0,0,canvas.width,canvas.height);
-
     drawConnectors(ctx, lm, Pose.POSE_CONNECTIONS);
     drawLandmarks(ctx, lm);
 
-    autoCalibrate(lm);
-    analyze(lm);
+    // ===== 计算姿态 =====
+    const angles = getHeadAngles(lm);
+
+    // ===== 驱动卡通头 =====
+    updateAnimal(angles);
   });
 
   loop();
 }
 
+// =========================
+// 循环
+// =========================
 async function loop() {
   await pose.send({ image: video });
   requestAnimationFrame(loop);
 }
 
-// =====================
+// =========================
 // 启动
-// =====================
+// =========================
 (async () => {
   await startCamera();
   initPose();
