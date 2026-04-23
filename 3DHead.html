@@ -32,6 +32,10 @@
             width: 100%;
             height: 100%;
             display: block;
+            position: absolute;
+            top: 0;
+            left: 0;
+            z-index: 1;
         }
 
         #video {
@@ -43,7 +47,8 @@
             background: black;
             border: 3px solid white;
             border-radius: 10px;
-            z-index: 10;
+            z-index: 100;
+            opacity: 0.8;
         }
 
         #info {
@@ -51,13 +56,12 @@
             bottom: 20px;
             left: 20px;
             color: white;
-            font-size: 14px;
-            background: rgba(0, 0, 0, 0.7);
+            font-size: 12px;
+            background: rgba(0, 0, 0, 0.8);
             padding: 15px;
             border-radius: 10px;
             font-family: monospace;
-            z-index: 10;
-            max-width: 250px;
+            z-index: 101;
         }
 
         #info p {
@@ -69,12 +73,12 @@
             top: 50%;
             left: 50%;
             transform: translate(-50%, -50%);
-            background: rgba(0, 0, 0, 0.8);
+            background: rgba(0, 0, 0, 0.9);
             color: white;
-            padding: 30px 50px;
-            border-radius: 10px;
-            font-size: 18px;
-            z-index: 100;
+            padding: 40px;
+            border-radius: 15px;
+            font-size: 16px;
+            z-index: 1000;
             text-align: center;
             font-family: monospace;
         }
@@ -184,18 +188,19 @@
                 const canvas = document.getElementById('canvas');
                 const scene = new THREE.Scene();
                 const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
-                const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: false });
+                const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: false, premultipliedAlpha: false });
                 renderer.setSize(window.innerWidth, window.innerHeight);
-                renderer.setClearColor(0x1a1a2e, 1);
+                renderer.setPixelRatio(window.devicePixelRatio);
+                renderer.setClearColor(0x0a0e27, 1);
                 renderer.shadowMap.enabled = true;
 
                 camera.position.z = 5;
 
                 // ============= LIGHTING =============
-                const ambientLight = new THREE.AmbientLight(0xffffff, 0.6);
+                const ambientLight = new THREE.AmbientLight(0xffffff, 1.0);
                 scene.add(ambientLight);
 
-                const directionalLight = new THREE.DirectionalLight(0xffffff, 0.8);
+                const directionalLight = new THREE.DirectionalLight(0xffffff, 1.0);
                 directionalLight.position.set(10, 10, 10);
                 directionalLight.castShadow = true;
                 directionalLight.shadow.mapSize.width = 2048;
@@ -303,6 +308,16 @@
                 const cartoonHead = createCartoonHead();
                 headGroup.add(cartoonHead);
 
+                // 添加一个简单的立方体作为测试
+                const testGeo = new THREE.BoxGeometry(0.5, 0.5, 0.5);
+                const testMat = new THREE.MeshPhongMaterial({ color: 0xff0000, emissive: 0x4400ff });
+                const testCube = new THREE.Mesh(testGeo, testMat);
+                testCube.position.set(2.5, 0, 0);
+                scene.add(testCube);
+
+                console.log('✓ 卡通头部已创建');
+                console.log('Three.js 场景:', { canvas, scene, renderer, camera });
+
                 // ============= SMOOTHING VARIABLES =============
                 const smoothing = {
                     yaw: 0,
@@ -319,6 +334,65 @@
                 const video = document.getElementById('video');
                 const loadingDiv = document.getElementById('loading');
 
+                setLoadingStep('step3');
+
+                let faceDetected = false;
+
+                // 创建和配置 FaceMesh
+                const faceMesh = new FaceMesh({
+                    lockedVideoProperties: {
+                        width: 1280,
+                        height: 720
+                    }
+                });
+
+                faceMesh.setOptions({
+                    maxNumFaces: 1,
+                    refineLandmarks: true,
+                    minDetectionConfidence: 0.5,
+                    minTrackingConfidence: 0.5
+                });
+
+                // 定义面部检测回调函数
+                function onResults(results) {
+                    if (!results.multiFaceLandmarks || results.multiFaceLandmarks.length === 0) {
+                        faceDetected = false;
+                        return;
+                    }
+
+                    faceDetected = true;
+                    const landmarks = results.multiFaceLandmarks[0];
+
+                    // Key landmark indices for head pose estimation
+                    const noseTip = landmarks[1];      // Tip of nose (front center)
+                    const foreheadMid = landmarks[10]; // Forehead
+                    const leftCheek = landmarks[234];  // Left cheek
+                    const rightCheek = landmarks[454]; // Right cheek
+                    const leftEar = landmarks[133];    // Left ear
+                    const rightEar = landmarks[362];   // Right ear
+
+                    // Calculate head rotation angles from landmarks
+                    // YAW (left-right rotation)
+                    const cheekDiff = rightCheek.x - leftCheek.x;
+                    smoothing.targetYaw = (cheekDiff - 0.5) * 120; // Range: -60 to 60 degrees
+
+                    // PITCH (up-down rotation)
+                    const verticalDiff = noseTip.y - foreheadMid.y;
+                    smoothing.targetPitch = verticalDiff * -200; // Invert for intuitive control
+
+                    // ROLL (head tilt)
+                    const earDiff = rightEar.y - leftEar.y;
+                    smoothing.targetRoll = earDiff * 150;
+
+                    // Clamp values
+                    smoothing.targetYaw = Math.max(-45, Math.min(45, smoothing.targetYaw));
+                    smoothing.targetPitch = Math.max(-40, Math.min(40, smoothing.targetPitch));
+                    smoothing.targetRoll = Math.max(-30, Math.min(30, smoothing.targetRoll));
+                }
+
+                // 设置回调函数
+                faceMesh.onResults(onResults);
+
                 // 创建 Camera 实例
                 const camera_utils_camera = new Camera(video, {
                     onFrame: async () => {
@@ -332,7 +406,7 @@
                 try {
                     console.log('正在启动摄像头...');
                     camera_utils_camera.start();
-                    console.log('摄像头已启动');
+                    console.log('摄像头已启动，开始面部检测...');
                     
                     // 稍等片刻，然后隐藏加载界面
                     setTimeout(() => {
@@ -404,10 +478,21 @@
                 });
 
                 // Start animation
+                console.log('✓ 开始动画渲染...');
                 animate();
 
             } catch (error) {
+                console.error('初始化错误:', error);
                 showError('初始化过程中出错: ' + error.message);
+                
+                // 即使出错也尝试渲染场景
+                const canvas = document.getElementById('canvas');
+                const scene = new THREE.Scene();
+                scene.background = new THREE.Color(0x0a0e27);
+                const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
+                const renderer = new THREE.WebGLRenderer({ canvas });
+                renderer.setSize(window.innerWidth, window.innerHeight);
+                renderer.render(scene, camera);
             }
         }
     </script>
