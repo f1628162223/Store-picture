@@ -2,15 +2,13 @@
 <html lang="zh">
 <head>
 <meta charset="UTF-8" />
-<title>学习坐姿检测系统</title>
+<title>坐姿检测</title>
 
 <style>
   body {
     margin: 0;
     background: black;
     overflow: hidden;
-    font-family: Arial;
-    color: white;
   }
 
   video {
@@ -27,7 +25,6 @@
     left: 0;
   }
 
-  /* 分数 */
   #score {
     position: absolute;
     top: 5vh;
@@ -35,27 +32,22 @@
     text-align: center;
     font-size: 10vh;
     font-weight: 900;
-    text-shadow: 0 0 10px black;
+    color: white;
   }
 
-  /* 提示 */
   #warning {
     position: absolute;
     bottom: 10vh;
     left: 50%;
     transform: translateX(-50%);
-
-    font-size: 5.5vh;
+    font-size: 6vh;
     font-weight: 900;
     color: red;
-
     background: rgba(0,0,0,0.7);
     border: 3px solid red;
     border-radius: 12px;
-
     padding: 2vh 4vh;
     display: none;
-    text-align: center;
   }
 </style>
 </head>
@@ -65,7 +57,7 @@
 <video id="video" autoplay playsinline></video>
 <canvas id="canvas"></canvas>
 
-<div id="score">100</div>
+<div id="score">--</div>
 <div id="warning"></div>
 
 <script src="https://cdn.jsdelivr.net/npm/@mediapipe/pose/pose.js"></script>
@@ -81,12 +73,14 @@ const scoreEl = document.getElementById("score");
 const warningEl = document.getElementById("warning");
 
 let pose;
+let ready = false;
 let badFrames = 0;
 
-// =========================
-// 摄像头
-// =========================
+// ======================
+// 摄像头（增强稳定）
+// ======================
 async function startCamera() {
+
   const stream = await navigator.mediaDevices.getUserMedia({
     video: { facingMode: "user" },
     audio: false
@@ -94,17 +88,16 @@ async function startCamera() {
 
   video.srcObject = stream;
 
-  return new Promise(resolve => {
-    video.onloadedmetadata = () => {
-      video.play();
-      resolve();
-    };
+  await new Promise(resolve => {
+    video.onloadedmetadata = () => resolve();
   });
+
+  await video.play();
 }
 
-// =========================
-// 镜像修复
-// =========================
+// ======================
+// 镜像
+// ======================
 function mirror(lm) {
   return lm.map(p => ({
     ...p,
@@ -112,9 +105,9 @@ function mirror(lm) {
   }));
 }
 
-// =========================
-// ⭐ 学习模式核心逻辑（重点修复）
-// =========================
+// ======================
+// 坐姿判断（稳定版）
+// ======================
 function analyze(lm) {
 
   const nose = lm[0];
@@ -134,46 +127,29 @@ function analyze(lm) {
   let score = 100;
   let reasons = [];
 
-  // =========================
-  // 🟡 允许：正常写作低头（不扣分）
-  // =========================
-
   const headDrop = nose.y - shoulderY;
-
-  // =========================
-  // 🔴 1. 真正异常：身体整体前倾（关键）
-  // =========================
   const bodyLean = Math.abs(nose.x - shoulderX);
 
-  const isForwardBad = bodyLean > 0.14 && headDrop > 0.18;
-
-  if (isForwardBad) {
+  if (bodyLean > 0.14 && headDrop > 0.18) {
     score -= 45;
     reasons.push("身体前倾");
   }
 
-  // =========================
-  // 🔴 2. 趴桌（强异常）
-  // =========================
-  const isTooLow = nose.y > hipY - 0.05;
-
-  if (isTooLow) {
+  if (nose.y > hipY - 0.05) {
     score -= 50;
-    reasons.push("趴桌姿势");
+    reasons.push("趴桌");
   }
 
-  score = Math.max(0, score);
-
   return {
-    score,
+    score: Math.max(0, score),
     bad: score < 70,
     msg: reasons.join(" / ")
   };
 }
 
-// =========================
-// 初始化
-// =========================
+// ======================
+// 初始化 pose（延迟启动）
+// ======================
 function initPose() {
 
   pose = new Pose({
@@ -193,25 +169,37 @@ function initPose() {
   loop();
 }
 
-// =========================
-// 循环
-// =========================
+// ======================
+// 🔥 安全循环（防黑屏关键）
+// ======================
 async function loop() {
+
+  if (!ready) {
+    requestAnimationFrame(loop);
+    return;
+  }
+
+  if (video.videoWidth === 0) {
+    requestAnimationFrame(loop);
+    return;
+  }
+
   await pose.send({ image: video });
-  setTimeout(loop, 33);
+
+  requestAnimationFrame(loop);
 }
 
-// =========================
-// 结果处理
-// =========================
+// ======================
+// 结果
+// ======================
 function onResults(results) {
+
+  if (!results.poseLandmarks) return;
 
   canvas.width = video.videoWidth;
   canvas.height = video.videoHeight;
 
   ctx.clearRect(0, 0, canvas.width, canvas.height);
-
-  if (!results.poseLandmarks) return;
 
   const lm = mirror(results.poseLandmarks);
 
@@ -220,19 +208,10 @@ function onResults(results) {
 
   const { score, bad, msg } = analyze(lm);
 
-  // =========================
-  // 分数
-  // =========================
   scoreEl.innerText = score;
 
-  // =========================
-  // 防误报（必须连续触发）
-  // =========================
-  if (bad) {
-    badFrames++;
-  } else {
-    badFrames = 0;
-  }
+  if (bad) badFrames++;
+  else badFrames = 0;
 
   if (badFrames > 6) {
     warningEl.style.display = "block";
@@ -242,14 +221,16 @@ function onResults(results) {
   }
 }
 
-// =========================
-// 启动
-// =========================
-let badFrames = 0;
-
+// ======================
+// 启动流程（关键修复）
+// ======================
 async function start() {
-  await startCamera();
-  initPose();
+
+  await startCamera();   // 先摄像头
+
+  ready = true;          // 再允许 pose
+
+  initPose();            // 再加载AI
 }
 
 start();
