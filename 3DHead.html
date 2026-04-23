@@ -2,7 +2,7 @@
 <html lang="zh">
 <head>
 <meta charset="UTF-8" />
-<title>坐姿检测系统</title>
+<title>高灵敏坐姿检测系统</title>
 
 <style>
   body {
@@ -44,7 +44,7 @@
     font-size: 5.5vh;
     font-weight: 900;
     color: red;
-    background: rgba(0,0,0,0.7);
+    background: rgba(0,0,0,0.75);
     border: 3px solid red;
     border-radius: 12px;
     padding: 2vh 4vh;
@@ -94,19 +94,16 @@ async function startCamera() {
 }
 
 // =========================
-// 镜像
+// 镜像修复
 // =========================
 function mirror(lm) {
-  return lm.map(p => ({
-    ...p,
-    x: 1 - p.x
-  }));
+  return lm.map(p => ({ ...p, x: 1 - p.x }));
 }
 
 // =========================
-// ⭐ 更真实评分系统
+// 🔥 高灵敏角度级分析（核心升级）
 // =========================
-function calcScore(lm) {
+function analyze(lm) {
 
   const nose = lm[0];
   const ls = lm[11];
@@ -114,55 +111,79 @@ function calcScore(lm) {
   const lh = lm[23];
   const rh = lm[24];
 
-  if (!nose || !ls || !rs || !lh || !rh) return 100;
+  if (!nose || !ls || !rs || !lh || !rh) {
+    return { score: 100, bad: false, msg: "" };
+  }
 
   const shoulderX = (ls.x + rs.x) / 2;
   const shoulderY = (ls.y + rs.y) / 2;
+  const hipX = (lh.x + rh.x) / 2;
   const hipY = (lh.y + rh.y) / 2;
 
   let score = 100;
+  let reasons = [];
 
-  // =====================
-  // 🟡 允许轻微低头（写作业正常）
-  // =====================
+  // =========================
+  // 🔥 1. 头部前伸（灵敏核心）
+  // =========================
+  const headForward = Math.abs(nose.x - shoulderX);
+
+  if (headForward > 0.06) {
+    score -= 35;
+    reasons.push("头部前伸");
+  }
+
+  // =========================
+  // 🔥 2. 脊柱角度（驼背核心）
+  // =========================
+  const spineAngle = Math.abs(shoulderY - hipY);
+
+  // 正常约 0.12~0.18
+  if (spineAngle > 0.16) {
+    score -= 40;
+    reasons.push("驼背");
+  }
+
+  // =========================
+  // 🔥 3. 头低过多（写作业保护阈值）
+  // =========================
   const headDrop = nose.y - shoulderY;
-  if (headDrop > 0.28) score -= 15;
 
-  // =====================
-  // 🔴 前倾（核心判断）
-  // =====================
-  const bodyLean =
-    Math.abs(nose.x - shoulderX) /
-    Math.max(0.01, Math.abs(rs.x - ls.x));
+  if (headDrop > 0.12) {
+    score -= 25;
+    reasons.push("低头过多");
+  }
 
-  if (bodyLean > 0.30) score -= 35;
+  // =========================
+  // 🔥 4. 趴桌（强识别）
+  // =========================
+  if (nose.y > hipY - 0.08) {
+    score -= 50;
+    reasons.push("趴桌姿势");
+  }
 
-  // =====================
-  // 🔴 趴桌（强判断）
-  // =====================
-  if (nose.y > hipY - 0.10) score -= 50;
-
-  return Math.max(0, score);
+  return {
+    score: Math.max(0, score),
+    bad: score < 75,
+    msg: reasons.join(" / ")
+  };
 }
 
 // =========================
-// ⭐ 防“全程100”的关键修复
+// ⭐ 平滑 + 保留异常（防漏报）
 // =========================
 function smoothScore(newScore) {
 
   scoreBuffer.push(newScore);
 
-  if (scoreBuffer.length > 6) {
+  if (scoreBuffer.length > 5) {
     scoreBuffer.shift();
   }
 
-  const avg =
-    scoreBuffer.reduce((a, b) => a + b, 0) / scoreBuffer.length;
-
+  const avg = scoreBuffer.reduce((a, b) => a + b, 0) / scoreBuffer.length;
   const min = Math.min(...scoreBuffer);
 
-  // 👉 保留异常影响
-  return Math.round(avg * 0.6 + min * 0.4);
+  return Math.round(avg * 0.55 + min * 0.45);
 }
 
 // =========================
@@ -196,7 +217,7 @@ async function loop() {
 }
 
 // =========================
-// 结果
+// 结果处理
 // =========================
 function onResults(results) {
 
@@ -212,15 +233,15 @@ function onResults(results) {
   drawConnectors(ctx, lm, Pose.POSE_CONNECTIONS);
   drawLandmarks(ctx, lm);
 
-  const rawScore = calcScore(lm);
-  const score = smoothScore(rawScore);
+  const raw = analyze(lm);
+  const score = smoothScore(raw.score);
 
   scoreEl.innerText = score;
 
   // =========================
-  // 🔥 关键：更容易触发报警
+  // 🔥 高灵敏报警逻辑
   // =========================
-  if (rawScore < 60) {
+  if (raw.score < 65) {
     badFrames += 2;
   } else {
     badFrames = Math.max(0, badFrames - 1);
@@ -229,12 +250,11 @@ function onResults(results) {
   if (badFrames > 4) {
     warningEl.style.display = "block";
 
-    if (rawScore < 40) {
-      warningEl.innerText = "⚠ 趴桌姿势";
+    if (raw.score < 40) {
+      warningEl.innerText = "⚠ 趴桌 / 距离过近";
     } else {
-      warningEl.innerText = "⚠ 坐姿不端正（请挺直身体）";
+      warningEl.innerText = "⚠ 坐姿不良：" + raw.msg;
     }
-
   } else {
     warningEl.style.display = "none";
   }
