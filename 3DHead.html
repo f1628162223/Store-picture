@@ -2,7 +2,7 @@
 <html lang="zh">
 <head>
 <meta charset="UTF-8" />
-<title>3D坐姿系统）</title>
+<title>3D坐姿系统（修正上下方向）</title>
 
 <style>
   body {
@@ -49,20 +49,14 @@ const statusEl = document.getElementById("status");
 let scene, camera, renderer, model;
 let pose;
 
-// ⭐ 基准Y旋转
 let baseRotationY = 4.7;
 
 // =========================
 // 摄像头
 // =========================
 async function startCamera() {
-
-  const stream = await navigator.mediaDevices.getUserMedia({
-    video: true
-  });
-
+  const stream = await navigator.mediaDevices.getUserMedia({ video: true });
   video.srcObject = stream;
-
   await new Promise(r => video.onloadedmetadata = r);
   await video.play();
 }
@@ -76,7 +70,7 @@ function init3D() {
 
   camera = new THREE.PerspectiveCamera(
     60,
-    window.innerWidth / window.innerHeight,
+    innerWidth / innerHeight,
     0.1,
     1000
   );
@@ -84,12 +78,8 @@ function init3D() {
   camera.position.set(0, 0.15, 2.2);
   camera.lookAt(0, 0.15, 0);
 
-  renderer = new THREE.WebGLRenderer({
-    antialias: true,
-    alpha: true
-  });
-
-  renderer.setSize(window.innerWidth, window.innerHeight);
+  renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+  renderer.setSize(innerWidth, innerHeight);
   document.body.appendChild(renderer.domElement);
 
   scene.add(new THREE.DirectionalLight(0xffffff, 1));
@@ -111,11 +101,8 @@ function init3D() {
 
     model.scale.setScalar(2 / size.length());
 
-    // =========================
-    // ⭐ 初始旋转（重点修改）
-    // =========================
-    model.rotation.x = -1;       // 👈 你新增的
     model.rotation.y = baseRotationY;
+    model.rotation.x = -1;
 
     statusEl.innerText = "✔ 模型加载成功";
   });
@@ -132,7 +119,7 @@ function animate() {
 }
 
 // =========================
-// 姿态计算
+// 姿态计算（关键修复点）
 // =========================
 function getAngles(lm) {
 
@@ -143,7 +130,9 @@ function getAngles(lm) {
   const midY = (ls.y + rs.y) / 2;
 
   return {
-    pitch: (nose.y - midY) * 6,
+    // ⭐ 修复：上下方向反转
+    pitch: -(nose.y - midY) * 6,
+
     roll: (rs.y - ls.y) * 6,
     yaw: (nose.x - 0.5) * 6
   };
@@ -158,8 +147,8 @@ function updateModel({pitch, yaw, roll}) {
 
   const limit = 1.2;
 
-  // ⭐ 保持初始 -1 + 姿态叠加
-  model.rotation.x = -1 + (-Math.max(-limit, Math.min(limit, pitch)));
+  // ⭐ 现在方向正确了
+  model.rotation.x = -1 + Math.max(-limit, Math.min(limit, pitch));
 
   model.rotation.y = baseRotationY + Math.max(-limit, Math.min(limit, yaw));
 
