@@ -2,7 +2,7 @@
 <html lang="zh">
 <head>
 <meta charset="UTF-8" />
-<title>AI坐姿 + 3D反馈系统</title>
+<title>3D坐姿检测系统</title>
 
 <style>
   body {
@@ -11,13 +11,14 @@
     background: black;
   }
 
+  /* ✔ 不显示人脸 */
   video {
     position: absolute;
     width: 100vw;
     height: 100vh;
     object-fit: cover;
     transform: scaleX(-1);
-    opacity: 0; /* ✔ 不显示人脸（关键） */
+    opacity: 0;
   }
 
   #status {
@@ -40,7 +41,7 @@
 <!-- MediaPipe -->
 <script src="https://cdn.jsdelivr.net/npm/@mediapipe/pose/pose.js"></script>
 
-<!-- Three.js (ESM方式) -->
+<!-- Three.js -->
 <script type="module">
 
 import * as THREE from 'https://esm.sh/three@0.158.0';
@@ -59,7 +60,7 @@ let scene, camera, renderer, model;
 let pose;
 
 // =====================
-// 1️⃣ 摄像头（只用于识别，不显示）
+// 摄像头（隐藏）
 // =====================
 async function startCamera() {
 
@@ -74,7 +75,7 @@ async function startCamera() {
 }
 
 // =====================
-// 2️⃣ Three.js 初始化（来自B）
+// 3D初始化
 // =====================
 function init3D() {
 
@@ -89,66 +90,62 @@ function init3D() {
 
   camera.position.set(0, 0, 2);
 
-  renderer = new THREE.WebGLRenderer({ antialias: true });
+  renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
   renderer.setSize(window.innerWidth, window.innerHeight);
   document.body.appendChild(renderer.domElement);
 
-  // 光照
-  const light1 = new THREE.DirectionalLight(0xffffff, 1);
-  light1.position.set(1, 1, 1);
-  scene.add(light1);
+  // 光
+  scene.add(new THREE.DirectionalLight(0xffffff, 1));
+  scene.add(new THREE.AmbientLight(0xffffff, 0.6));
 
-  const light2 = new THREE.HemisphereLight(0xffffff, 0x444444, 1.2);
-  scene.add(light2);
-
-  // 模型加载
+  // =====================
+  // 加载模型
+  // =====================
   const loader = new GLTFLoader();
 
-  loader.load(
-    './puppycat_head.glb',
+  loader.load('./puppycat_head.glb', (gltf) => {
 
-    (gltf) => {
+    model = gltf.scene;
+    scene.add(model);
 
-      model = gltf.scene;
-      scene.add(model);
+    // =====================
+    // ✔ 自动居中 + 缩放
+    // =====================
+    const box = new THREE.Box3().setFromObject(model);
+    const size = box.getSize(new THREE.Vector3()).length();
+    const center = box.getCenter(new THREE.Vector3());
 
-      // ===== 自动居中 + 缩放（B的核心）=====
-      const box = new THREE.Box3().setFromObject(model);
-      const size = box.getSize(new THREE.Vector3()).length();
-      const center = box.getCenter(new THREE.Vector3());
+    model.position.sub(center);
 
-      model.position.sub(center);
+    const scale = 2 / size;
+    model.scale.setScalar(scale);
 
-      const scale = 2 / size;
-      model.scale.setScalar(scale);
+    // =====================
+    // ⭐ 关键：修正模型朝向
+    // （解决你“朝右”的问题）
+    // =====================
+    model.rotation.y = Math.PI;
 
-      statusEl.innerText = "✔ 模型加载成功";
-    },
+    statusEl.innerText = "✔ 模型加载完成";
 
-    undefined,
-
-    (err) => {
-      console.error(err);
-      statusEl.innerText = "❌ 模型加载失败";
-    }
-  );
+  }, undefined, (err) => {
+    console.error(err);
+    statusEl.innerText = "❌ 加载失败";
+  });
 
   animate();
 }
 
 // =====================
-// 渲染循环
+// 渲染
 // =====================
 function animate() {
-
   requestAnimationFrame(animate);
-
-  // ✔ 模型固定，不自动转
   renderer.render(scene, camera);
 }
 
 // =====================
-// 3️⃣ 姿态计算（来自A）
+// 姿态计算
 // =====================
 function amplify(x) {
   return Math.sign(x) * Math.pow(Math.abs(x), 1.5);
@@ -170,11 +167,11 @@ function getAngles(lm) {
   if (Math.abs(roll) < 0.02) roll = 0;
   if (Math.abs(yaw) < 0.02) yaw = 0;
 
-  return { pitch, roll, yaw };
+  return { pitch, yaw, roll };
 }
 
 // =====================
-// 4️⃣ 驱动3D模型（核心融合）
+// 驱动模型
 // =====================
 function updateModel({pitch, yaw, roll}) {
 
@@ -186,12 +183,12 @@ function updateModel({pitch, yaw, roll}) {
   yaw   = Math.max(-limit, Math.min(limit, yaw));
   roll  = Math.max(-limit, Math.min(limit, roll));
 
-  // ✔ 动作映射
+  // ✔ 关键映射
   model.rotation.x = -pitch;
   model.rotation.y = yaw;
   model.rotation.z = roll;
 
-  // ✔ 状态反馈
+  // ✔ 状态提示
   if (Math.abs(pitch) > 0.6) {
     statusEl.innerText = "⚠ 低头过多";
   } else if (Math.abs(roll) > 0.6) {
@@ -202,7 +199,7 @@ function updateModel({pitch, yaw, roll}) {
 }
 
 // =====================
-// 5️⃣ MediaPipe 初始化（A）
+// MediaPipe
 // =====================
 function initPose() {
 
@@ -238,9 +235,9 @@ async function loop() {
 // =====================
 (async () => {
 
-  await startCamera();  // ✔ 摄像头（隐藏）
-  init3D();             // ✔ 模型展示（B）
-  initPose();           // ✔ 姿态识别（A）
+  await startCamera();
+  init3D();
+  initPose();
 
 })();
 
