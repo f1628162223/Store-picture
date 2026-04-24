@@ -2,13 +2,13 @@
 <html lang="zh">
 <head>
 <meta charset="UTF-8" />
-<title>3D头部替身（修复朝向版）</title>
+<title>3D调试版</title>
 
 <style>
   body {
     margin: 0;
     overflow: hidden;
-    background: black;
+    background: #222; /* ⭐ 用灰色防黑屏误判 */
   }
 
   #status {
@@ -25,12 +25,9 @@
 
 <body>
 
-<div id="status">初始化...</div>
+<div id="status">启动中...</div>
 
-<!-- MediaPipe（必须script方式） -->
 <script src="https://cdn.jsdelivr.net/npm/@mediapipe/pose/pose.js"></script>
-
-<!-- Three.js（非module，避免冲突） -->
 <script src="https://cdn.jsdelivr.net/npm/three@0.158.0/build/three.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/three@0.158.0/examples/js/loaders/GLTFLoader.js"></script>
 
@@ -39,30 +36,16 @@
 const statusEl = document.getElementById("status");
 
 let scene, camera, renderer, model;
-let pose;
-let video;
 
-// ==========================
-// 摄像头（隐藏使用）
-// ==========================
-async function initCamera() {
+init();
 
-  video = document.createElement("video");
+function init() {
 
-  const stream = await navigator.mediaDevices.getUserMedia({
-    video: true
-  });
+  console.log("init start");
 
-  video.srcObject = stream;
-
-  await video.play();
-}
-
-// ==========================
-// Three.js 初始化
-// ==========================
-function init3D() {
-
+  // =====================
+  // Scene
+  // =====================
   scene = new THREE.Scene();
 
   camera = new THREE.PerspectiveCamera(
@@ -72,156 +55,97 @@ function init3D() {
     1000
   );
 
-  camera.position.set(0, 0, 2.2);
+  camera.position.set(0, 0, 3);
 
-  renderer = new THREE.WebGLRenderer({
-    antialias: true,
-    alpha: true
-  });
-
+  // =====================
+  // Renderer
+  // =====================
+  renderer = new THREE.WebGLRenderer({ antialias: true });
   renderer.setSize(window.innerWidth, window.innerHeight);
   document.body.appendChild(renderer.domElement);
 
-  // ===== 光 =====
-  scene.add(new THREE.AmbientLight(0xffffff, 2));
+  console.log("renderer OK");
 
+  // =====================
+  // ⭐ TEST BOX（关键调试）
+  // =====================
+  const testGeo = new THREE.BoxGeometry(0.5, 0.5, 0.5);
+  const testMat = new THREE.MeshBasicMaterial({ color: 0x00ff00 });
+  const cube = new THREE.Mesh(testGeo, testMat);
+  scene.add(cube);
+
+  console.log("test cube added");
+
+  // =====================
+  // LIGHT
+  // =====================
   const light = new THREE.DirectionalLight(0xffffff, 2);
-  light.position.set(2, 2, 2);
+  light.position.set(1, 1, 1);
   scene.add(light);
 
-  // ==========================
-  // 加载模型
-  // ==========================
+  scene.add(new THREE.AmbientLight(0xffffff, 1.5));
+
+  // =====================
+  // LOAD MODEL
+  // =====================
   const loader = new THREE.GLTFLoader();
 
-  loader.load("./puppycat_head.glb", (gltf) => {
+  console.log("loading glb...");
 
-    model = gltf.scene;
-    scene.add(model);
+  loader.load(
+    "./puppycat_head.glb",
 
-    console.log("✔ 模型加载成功");
+    (gltf) => {
 
-    // ==========================
-    // ⭐ 自动居中 + 缩放
-    // ==========================
-    const box = new THREE.Box3().setFromObject(model);
-    const size = box.getSize(new THREE.Vector3()).length();
-    const center = box.getCenter(new THREE.Vector3());
+      console.log("GLB loaded");
 
-    model.position.sub(center);
+      model = gltf.scene;
+      scene.add(model);
 
-    const scale = 2.5 / size;
-    model.scale.setScalar(scale);
+      // ===== 强制可见修复 =====
+      const box = new THREE.Box3().setFromObject(model);
+      const size = box.getSize(new THREE.Vector3()).length();
+      const center = box.getCenter(new THREE.Vector3());
 
-    // ==========================
-    // ⭐ 关键：正对用户（修复背面问题）
-    // ==========================
-    model.rotation.y = Math.PI;
+      model.position.sub(center);
 
-    statusEl.innerText = "✔ 模型已就位";
-  });
+      const scale = 1.5 / size;
+      model.scale.setScalar(scale);
+
+      model.position.z = 0;
+
+      // ⭐ 强制移到摄像机前
+      model.position.y = 0;
+
+      statusEl.innerText = "✔ 模型加载成功";
+    },
+
+    (xhr) => {
+      statusEl.innerText =
+        "加载中 " + Math.round(xhr.loaded / xhr.total * 100) + "%";
+    },
+
+    (err) => {
+      console.error("GLB ERROR:", err);
+      statusEl.innerText = "❌ 模型加载失败（看控制台）";
+    }
+  );
 
   animate();
 }
 
-// ==========================
-// 姿态计算
-// ==========================
-function getPose(lm) {
-
-  const nose = lm[0];
-  const ls = lm[11];
-  const rs = lm[12];
-
-  const midY = (ls.y + rs.y) / 2;
-
-  return {
-    pitch: (nose.y - midY) * 6,
-    roll: (rs.y - ls.y) * 6,
-    yaw: (0.5 - nose.x) * 6
-  };
-}
-
-// ==========================
-// 驱动模型（核心修复）
-// ==========================
-function updateModel({ pitch, roll, yaw }) {
-
-  if (!model) return;
-
-  const limit = 1.2;
-
-  pitch = Math.max(-limit, Math.min(limit, pitch));
-  roll  = Math.max(-limit, Math.min(limit, roll));
-  yaw   = Math.max(-limit, Math.min(limit, yaw));
-
-  // ==========================
-  // ⭐ 修复方向（关键）
-  // ==========================
-
-  model.rotation.x = pitch;          // 低头/抬头
-  model.rotation.y = -yaw + Math.PI; // 左右 + 正对用户
-  model.rotation.z = roll;           // 歪头
-
-  if (Math.abs(pitch) > 0.6) {
-    statusEl.innerText = "⚠ 低头过多";
-  } else if (Math.abs(roll) > 0.6) {
-    statusEl.innerText = "⚠ 头部歪斜";
-  } else {
-    statusEl.innerText = "✔ 姿势正常";
-  }
-}
-
-// ==========================
-// MediaPipe
-// ==========================
-function initPose() {
-
-  pose = new window.Pose({
-    locateFile: (file) =>
-      `https://cdn.jsdelivr.net/npm/@mediapipe/pose/${file}`
-  });
-
-  pose.setOptions({
-    modelComplexity: 1,
-    smoothLandmarks: true
-  });
-
-  pose.onResults((res) => {
-
-    if (!res.poseLandmarks) return;
-
-    const angles = getPose(res.poseLandmarks);
-
-    updateModel(angles);
-  });
-
-  loop();
-}
-
-async function loop() {
-  await pose.send({ image: video });
-  requestAnimationFrame(loop);
-}
-
-// ==========================
-// 渲染循环
-// ==========================
+// =====================
+// render loop
+// =====================
 function animate() {
+
   requestAnimationFrame(animate);
+
+  // ⭐ 让你确定Three在动
+  scene.rotation.y += 0.002;
+
   renderer.render(scene, camera);
 }
-
-// ==========================
-// 启动
-// ==========================
-(async () => {
-
-  await initCamera();
-  init3D();
-  initPose();
-
-})();
 
 </script>
 
