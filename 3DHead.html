@@ -1,231 +1,43 @@
 <!DOCTYPE html>
 <html lang="zh">
 <head>
-<meta charset="UTF-8" />
-<title>3D坐姿卡通头</title>
-
-<style>
-  body {
-    margin: 0;
-    overflow: hidden;
-    background: black;
-  }
-
-  video {
-    position: absolute;
-    width: 100vw;
-    height: 100vh;
-    object-fit: cover;
-    transform: scaleX(-1);
-  }
-
-  #status {
-    position: absolute;
-    bottom: 20px;
-    width: 100%;
-    text-align: center;
-    color: white;
-    font-size: 20px;
-    z-index: 10;
-  }
-</style>
+<meta charset="UTF-8">
+<title>GLB测试</title>
 </head>
-
 <body>
 
-<video id="video" autoplay playsinline></video>
-<div id="status">加载中...</div>
+<script type="module">
 
-<!-- MediaPipe -->
-<script src="https://cdn.jsdelivr.net/npm/@mediapipe/pose/pose.js"></script>
+import * as THREE from 'https://cdn.jsdelivr.net/npm/three@0.158.0/build/three.module.js';
+import { GLTFLoader } from 'https://cdn.jsdelivr.net/npm/three@0.158.0/examples/jsm/loaders/GLTFLoader.js';
 
-<!-- Three.js -->
-<script src="https://cdn.jsdelivr.net/npm/three@0.158.0/build/three.min.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/three@0.158.0/examples/js/loaders/GLTFLoader.js"></script>
+const scene = new THREE.Scene();
 
-<script>
+const camera = new THREE.PerspectiveCamera(60, innerWidth/innerHeight, 0.1, 1000);
+camera.position.z = 3;
 
-const video = document.getElementById("video");
-const statusEl = document.getElementById("status");
+const renderer = new THREE.WebGLRenderer();
+renderer.setSize(innerWidth, innerHeight);
+document.body.appendChild(renderer.domElement);
 
-let pose;
+// 光
+scene.add(new THREE.DirectionalLight(0xffffff,1));
+scene.add(new THREE.AmbientLight(0xffffff,0.6));
 
-// =====================
-// Three.js 基础
-// =====================
-let scene, camera, renderer, model;
+// 加载模型
+const loader = new GLTFLoader();
 
-function init3D() {
+loader.load('./puppycat_head.glb', (gltf)=>{
+  scene.add(gltf.scene);
+});
 
-  scene = new THREE.Scene();
-
-  camera = new THREE.PerspectiveCamera(
-    60,
-    window.innerWidth / window.innerHeight,
-    0.1,
-    1000
-  );
-
-  renderer = new THREE.WebGLRenderer({ alpha: true, antialias: true });
-  renderer.setSize(window.innerWidth, window.innerHeight);
-  document.body.appendChild(renderer.domElement);
-
-  // 光源
-  const light = new THREE.DirectionalLight(0xffffff, 1);
-  light.position.set(1, 1, 1);
-  scene.add(light);
-
-  const ambient = new THREE.AmbientLight(0xffffff, 0.6);
-  scene.add(ambient);
-
-  camera.position.z = 3;
-
-  // =====================
-  // 加载你的模型
-  // =====================
-  const loader = new THREE.GLTFLoader();
-
-  loader.load(
-    "puppycat_head.glb",   // 👈 你的模型文件
-    function (gltf) {
-
-      model = gltf.scene;
-      scene.add(model);
-
-      model.scale.set(1, 1, 1);
-      model.position.set(0, -0.5, 0);
-
-      statusEl.innerText = "✔ 模型加载完成";
-    },
-    undefined,
-    function (error) {
-      console.error(error);
-      statusEl.innerText = "❌ 模型加载失败";
-    }
-  );
-
-  animate();
-}
-
-function animate() {
+// 渲染
+function animate(){
   requestAnimationFrame(animate);
-  renderer.render(scene, camera);
+  renderer.render(scene,camera);
 }
 
-// =====================
-// 非线性放大（优化手感）
-// =====================
-function amplify(x) {
-  return Math.sign(x) * Math.pow(Math.abs(x), 1.5);
-}
-
-// =====================
-// 计算头部姿态
-// =====================
-function getAngles(lm) {
-
-  const nose = lm[0];
-  const ls = lm[11];
-  const rs = lm[12];
-
-  const midY = (ls.y + rs.y) / 2;
-
-  let pitch = amplify(nose.y - midY) * 6;
-  let roll  = amplify(rs.y - ls.y) * 6;
-  let yaw   = amplify(0.5 - nose.x) * 6;
-
-  // 死区（防抖）
-  if (Math.abs(pitch) < 0.02) pitch = 0;
-  if (Math.abs(roll) < 0.02) roll = 0;
-  if (Math.abs(yaw) < 0.02) yaw = 0;
-
-  return { pitch, roll, yaw };
-}
-
-// =====================
-// 驱动3D模型
-// =====================
-function updateModel({pitch, yaw, roll}) {
-
-  if (!model) return;
-
-  const limit = 1.2;
-
-  pitch = Math.max(-limit, Math.min(limit, pitch));
-  yaw   = Math.max(-limit, Math.min(limit, yaw));
-  roll  = Math.max(-limit, Math.min(limit, roll));
-
-  // ✔ 注意Three.js坐标
-  model.rotation.x = -pitch;
-  model.rotation.y = yaw;
-  model.rotation.z = roll;
-
-  if (Math.abs(pitch) > 0.6) {
-    statusEl.innerText = "⚠ 低头过多";
-  } else if (Math.abs(roll) > 0.6) {
-    statusEl.innerText = "⚠ 头部歪斜";
-  } else {
-    statusEl.innerText = "✔ 姿势良好";
-  }
-}
-
-// =====================
-// 摄像头
-// =====================
-async function startCamera() {
-
-  const stream = await navigator.mediaDevices.getUserMedia({
-    video: true
-  });
-
-  video.srcObject = stream;
-
-  await new Promise(r => video.onloadedmetadata = r);
-  await video.play();
-}
-
-// =====================
-// MediaPipe
-// =====================
-function initPose() {
-
-  pose = new Pose({
-    locateFile: f =>
-      `https://cdn.jsdelivr.net/npm/@mediapipe/pose/${f}`
-  });
-
-  pose.setOptions({
-    modelComplexity: 1,
-    smoothLandmarks: true
-  });
-
-  pose.onResults(res => {
-
-    if (!res.poseLandmarks) return;
-
-    const lm = res.poseLandmarks;
-
-    const angles = getAngles(lm);
-
-    updateModel(angles);
-  });
-
-  loop();
-}
-
-async function loop() {
-  await pose.send({ image: video });
-  requestAnimationFrame(loop);
-}
-
-// =====================
-// 启动
-// =====================
-(async () => {
-  await startCamera();
-  init3D();
-  initPose();
-})();
+animate();
 
 </script>
 
