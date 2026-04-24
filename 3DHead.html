@@ -2,7 +2,7 @@
 <html lang="zh">
 <head>
 <meta charset="UTF-8" />
-<title>AI坐姿 + 3D反馈系统1</title>
+<title>AI坐姿 + 自动朝向校准</title>
 
 <style>
   body {
@@ -11,7 +11,6 @@
     background: black;
   }
 
-  /* 不显示人脸 */
   video {
     position: absolute;
     width: 100vw;
@@ -27,8 +26,7 @@
     width: 100%;
     text-align: center;
     color: white;
-    font-size: 20px;
-    z-index: 10;
+    font-size: 18px;
   }
 </style>
 </head>
@@ -49,26 +47,22 @@ const video = document.getElementById("video");
 const statusEl = document.getElementById("status");
 
 let scene, camera, renderer;
-let model;      // pivot（控制层）
+let model; // pivot
 let pose;
 
-// =====================
+// =========================
 // 摄像头
-// =====================
+// =========================
 async function startCamera() {
-
-  const stream = await navigator.mediaDevices.getUserMedia({
-    video: true
-  });
-
+  const stream = await navigator.mediaDevices.getUserMedia({ video: true });
   video.srcObject = stream;
   await new Promise(r => video.onloadedmetadata = r);
   await video.play();
 }
 
-// =====================
-// 3D初始化
-// =====================
+// =========================
+// Three.js初始化
+// =========================
 function init3D() {
 
   scene = new THREE.Scene();
@@ -86,65 +80,76 @@ function init3D() {
   renderer.setSize(innerWidth, innerHeight);
   document.body.appendChild(renderer.domElement);
 
-  // 光
   scene.add(new THREE.DirectionalLight(0xffffff, 1));
   scene.add(new THREE.AmbientLight(0xffffff, 0.6));
 
-  // =====================
-  // GLB加载
-  // =====================
+  // =========================
+  // 加载模型
+  // =========================
   const loader = new GLTFLoader();
 
   loader.load('./puppycat_head.glb', (gltf) => {
 
     const raw = gltf.scene;
 
-    // ⭐ pivot（控制层）
+    // pivot控制层
     const pivot = new THREE.Group();
     scene.add(pivot);
     pivot.add(raw);
-
     model = pivot;
 
-    // =====================
-    // 自动居中 + 缩放
-    // =====================
+    // =========================
+    // 自动居中
+    // =========================
     const box = new THREE.Box3().setFromObject(raw);
-    const size = box.getSize(new THREE.Vector3()).length();
     const center = box.getCenter(new THREE.Vector3());
+    const size = box.getSize(new THREE.Vector3()).length();
 
     raw.position.sub(center);
+    raw.scale.setScalar(2 / size);
 
-    const scale = 2 / size;
-    raw.scale.setScalar(scale);
+    // =========================
+    // ⭐ 自动识别正脸方向（核心）
+    // =========================
+    const helper = new THREE.Box3Helper(box, 0xffff00);
+    scene.add(helper);
 
-    // =====================
-    // ⭐ 修正模型朝向（关键）
-    // =====================
-    pivot.rotation.y = Math.PI / 2;
+    // 用bounding box判断“长轴方向”
+    const sizeVec = box.getSize(new THREE.Vector3());
 
-    statusEl.innerText = "✔ 模型加载成功";
+    let axis = "z";
+
+    if (sizeVec.x > sizeVec.z && sizeVec.x > sizeVec.y) {
+      axis = "x";
+    } else if (sizeVec.z > sizeVec.x && sizeVec.z > sizeVec.y) {
+      axis = "z";
+    }
+
+    // ✔ 自动对齐正脸
+    if (axis === "x") {
+      raw.rotation.y = Math.PI / 2;
+    } else if (axis === "z") {
+      raw.rotation.y = 0;
+    }
+
+    statusEl.innerText = "✔ 模型加载完成（自动校准）";
 
   });
 
   animate();
 }
 
-// =====================
+// =========================
 // 渲染
-// =====================
+// =========================
 function animate() {
   requestAnimationFrame(animate);
   renderer.render(scene, camera);
 }
 
-// =====================
+// =========================
 // 姿态计算
-// =====================
-function amplify(x) {
-  return Math.sign(x) * Math.pow(Math.abs(x), 1.5);
-}
-
+// =========================
 function getAngles(lm) {
 
   const nose = lm[0];
@@ -153,33 +158,25 @@ function getAngles(lm) {
 
   const midY = (ls.y + rs.y) / 2;
 
-  let pitch = amplify(nose.y - midY) * 6;
-  let roll  = amplify(rs.y - ls.y) * 6;
-  let yaw   = amplify(0.5 - nose.x) * 6;
-
-  if (Math.abs(pitch) < 0.02) pitch = 0;
-  if (Math.abs(roll) < 0.02) roll = 0;
-  if (Math.abs(yaw) < 0.02) yaw = 0;
+  const pitch = (nose.y - midY) * 6;
+  const roll  = (rs.y - ls.y) * 6;
+  const yaw   = (0.5 - nose.x) * 6;
 
   return { pitch, yaw, roll };
 }
 
-// =====================
-// 驱动3D模型
-// =====================
+// =========================
+// 驱动模型
+// =========================
 function updateModel({pitch, yaw, roll}) {
 
   if (!model) return;
 
   const limit = 1.2;
 
-  pitch = Math.max(-limit, Math.min(limit, pitch));
-  yaw   = Math.max(-limit, Math.min(limit, yaw));
-  roll  = Math.max(-limit, Math.min(limit, roll));
-
-  model.rotation.x = -pitch;
-  model.rotation.y = yaw;
-  model.rotation.z = roll;
+  model.rotation.x = -Math.max(-limit, Math.min(limit, pitch));
+  model.rotation.y = Math.max(-limit, Math.min(limit, yaw));
+  model.rotation.z = Math.max(-limit, Math.min(limit, roll));
 
   if (Math.abs(pitch) > 0.6) {
     statusEl.innerText = "⚠ 低头过多";
@@ -190,9 +187,9 @@ function updateModel({pitch, yaw, roll}) {
   }
 }
 
-// =====================
+// =========================
 // MediaPipe
-// =====================
+// =========================
 function initPose() {
 
   const pose = new Pose({
@@ -209,9 +206,7 @@ function initPose() {
 
     if (!res.poseLandmarks) return;
 
-    const lm = res.poseLandmarks;
-
-    const angles = getAngles(lm);
+    const angles = getAngles(res.poseLandmarks);
 
     updateModel(angles);
   });
@@ -224,9 +219,9 @@ function initPose() {
   }
 }
 
-// =====================
+// =========================
 // 启动
-// =====================
+// =========================
 (async () => {
   await startCamera();
   init3D();
