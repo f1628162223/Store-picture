@@ -2,7 +2,7 @@
 <html lang="zh">
 <head>
 <meta charset="UTF-8" />
-<title>AI坐姿 + 自动朝向校准1</title>
+<title>AI坐姿 + 自动朝向校准</title>
 
 <style>
   body {
@@ -125,15 +125,14 @@ function init3D() {
       axis = "z";
     }
 
-    // ✔ 自动对齐正脸
+    // ✔ 自动对齐正脸 - 在 pivot 上旋转，不影响 raw
     if (axis === "x") {
-      raw.rotation.y = Math.PI / 2;
+      // X轴为长轴，需要旋转 90度 + 180度使脸朝向摄像头
+      model.rotation.y = Math.PI / 2 + Math.PI;
     } else if (axis === "z") {
-      raw.rotation.y = 0;
+      // Z轴为长轴，需要旋转 180度使脸朝向摄像头
+      model.rotation.y = Math.PI;
     }
-
-    // 180度旋转使脸面向摄像头
-    raw.rotation.y += Math.PI;
 
     statusEl.innerText = "✔ 模型加载完成（自动校准）";
 
