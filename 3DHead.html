@@ -2,7 +2,7 @@
 <html lang="zh">
 <head>
 <meta charset="UTF-8" />
-<title>坐姿检测 + 3D模型</title>
+<title>3D坐姿检测（修复版）</title>
 
 <style>
   body {
@@ -36,13 +36,16 @@
 <video id="video" autoplay playsinline></video>
 <div id="status">加载中...</div>
 
+<!-- ===================== -->
+<!-- MediaPipe（必须 script） -->
+<!-- ===================== -->
+<script src="https://cdn.jsdelivr.net/npm/@mediapipe/pose/pose.js"></script>
+
+<!-- Three.js -->
 <script type="module">
 
 import * as THREE from 'https://esm.sh/three@0.158.0';
 import { GLTFLoader } from 'https://esm.sh/three@0.158.0/examples/jsm/loaders/GLTFLoader.js';
-
-// MediaPipe
-import { Pose } from 'https://cdn.jsdelivr.net/npm/@mediapipe/pose/pose.js';
 
 const video = document.getElementById("video");
 const statusEl = document.getElementById("status");
@@ -66,7 +69,7 @@ async function startCamera() {
 }
 
 // =====================
-// Three.js 初始化
+// 3D初始化
 // =====================
 function init3D() {
 
@@ -97,17 +100,13 @@ function init3D() {
     model = gltf.scene;
     scene.add(model);
 
-    // =====================
-    // 自动居中 + 自动缩放
-    // =====================
+    // 自动居中 + 缩放
     const box = new THREE.Box3().setFromObject(model);
     const size = box.getSize(new THREE.Vector3()).length();
     const center = box.getCenter(new THREE.Vector3());
 
     model.position.sub(center);
-
-    const scale = 2 / size;
-    model.scale.setScalar(scale);
+    model.scale.setScalar(2 / size);
 
     statusEl.innerText = "✔ 模型加载成功";
   });
@@ -126,15 +125,15 @@ function getAngles(lm) {
 
   const midY = (ls.y + rs.y) / 2;
 
-  let pitch = (nose.y - midY) * 6;     // 低头
-  let roll  = (rs.y - ls.y) * 6;       // 歪头
-  let yaw   = (0.5 - nose.x) * 6;      // 左右
-
-  return { pitch, roll, yaw };
+  return {
+    pitch: (nose.y - midY) * 6,
+    roll: (rs.y - ls.y) * 6,
+    yaw: (0.5 - nose.x) * 6
+  };
 }
 
 // =====================
-// 驱动3D模型
+// 驱动模型
 // =====================
 function updateModel({ pitch, roll, yaw }) {
 
@@ -153,18 +152,19 @@ function updateModel({ pitch, roll, yaw }) {
   if (Math.abs(pitch) > 0.6) {
     statusEl.innerText = "⚠ 低头过多";
   } else if (Math.abs(roll) > 0.6) {
-    statusEl.innerText = "⚠ 头部歪斜";
+    statusEl.innerText = "⚠ 歪头";
   } else {
     statusEl.innerText = "✔ 姿势良好";
   }
 }
 
 // =====================
-// MediaPipe
+// MediaPipe初始化（关键修复）
 // =====================
 function initPose() {
 
-  pose = new Pose({
+  // ✔ 关键：来自 window.Pose
+  pose = new window.Pose({
     locateFile: (file) =>
       `https://cdn.jsdelivr.net/npm/@mediapipe/pose/${file}`
   });
