@@ -2,7 +2,7 @@
 <html lang="zh">
 <head>
 <meta charset="UTF-8" />
-<title>AI坐姿 + 正确视角</title>
+<title>AI坐姿 + 正确视角版</title>
 
 <style>
   body {
@@ -27,6 +27,7 @@
     text-align: center;
     color: white;
     font-size: 18px;
+    z-index: 10;
   }
 </style>
 </head>
@@ -48,6 +49,7 @@ const statusEl = document.getElementById("status");
 
 let scene, camera, renderer;
 let model;
+let pose;
 let baseRotationY = 0;
 
 // =========================
@@ -61,7 +63,7 @@ async function startCamera() {
 }
 
 // =========================
-// 3D初始化（关键修复在这里）
+// 3D初始化（关键修复全部在这里）
 // =========================
 function init3D() {
 
@@ -74,11 +76,11 @@ function init3D() {
     1000
   );
 
-  // ⭐ 关键修复1：正确相机位置（不要偏上）
-  camera.position.set(0, 0, 2.2);
+  // ⭐ 关键修复1：避免俯视
+  camera.position.set(0, 0.15, 2.2);
 
-  // ⭐ 关键修复2：必须lookAt中心
-  camera.lookAt(0, 0, 0);
+  // ⭐ 关键修复2：稳定对准“脸部区域”
+  camera.lookAt(0, 0.15, 0);
 
   renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
   renderer.setSize(innerWidth, innerHeight);
@@ -100,22 +102,27 @@ function init3D() {
     model = pivot;
 
     // =========================
-    // 自动居中 + 缩放
+    // ⭐ 正确修复：不要只用中心点
     // =========================
     const box = new THREE.Box3().setFromObject(raw);
-    const center = box.getCenter(new THREE.Vector3());
-    const size = box.getSize(new THREE.Vector3()).length();
+    const size = box.getSize(new THREE.Vector3());
 
+    const center = box.getCenter(new THREE.Vector3());
     raw.position.sub(center);
-    raw.scale.setScalar(2 / size);
+
+    // ⭐ 关键：向下移动，让“脸”进入视野中心
+    raw.position.y -= size.y * 0.35;
+
+    // 缩放
+    raw.scale.setScalar(2 / size.length());
 
     // =========================
-    // 修正模型方向（保留你原逻辑）
+    // ⭐ 固定朝向（不要再自动猜）
     // =========================
     baseRotationY = Math.PI;
     model.rotation.y = baseRotationY;
 
-    statusEl.innerText = "✔ 模型加载完成（视角已修复）";
+    statusEl.innerText = "✔ 模型加载成功（视角已修复）";
 
   });
 
@@ -128,14 +135,14 @@ function init3D() {
 function animate() {
   requestAnimationFrame(animate);
 
-  // ⭐ 关键修复3：持续锁定lookAt
-  camera.lookAt(0, 0, 0);
+  // ⭐ 强制稳定视角
+  camera.lookAt(0, 0.15, 0);
 
   renderer.render(scene, camera);
 }
 
 // =========================
-// 姿态计算
+// 姿态
 // =========================
 function getAngles(lm) {
 
