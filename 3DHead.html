@@ -2,7 +2,7 @@
 <html lang="zh">
 <head>
 <meta charset="UTF-8" />
-<title>3D坐姿系统</title>
+<title>3D坐姿系统（左右修正）</title>
 
 <style>
   body {
@@ -16,28 +16,19 @@
     width: 100vw;
     height: 100vh;
     object-fit: cover;
-    transform: scaleX(1);
+    transform: scaleX(1); /* 不镜像 */
     opacity: 0;
   }
 
-  /* ⭐ UI优化（重点） */
   #status {
     position: absolute;
     bottom: 5vh;
     width: 100%;
     text-align: center;
-
-    /* 👇 核心改动 */
-    font-size: 5vh;             /* 自适应大小 */
+    font-size: 5vh;
     font-weight: bold;
     color: red;
-
-    /* 👇 可读性增强 */
-    text-shadow: 
-      0 0 10px black,
-      0 0 20px black;
-
-    z-index: 10;
+    text-shadow: 0 0 10px black;
   }
 </style>
 </head>
@@ -58,10 +49,11 @@ const video = document.getElementById("video");
 const statusEl = document.getElementById("status");
 
 let scene, camera, renderer, model;
-let pose;
-
 let baseRotationY = 4.7;
 
+// =========================
+// 摄像头
+// =========================
 async function startCamera() {
   const stream = await navigator.mediaDevices.getUserMedia({ video: true });
   video.srcObject = stream;
@@ -69,6 +61,9 @@ async function startCamera() {
   await video.play();
 }
 
+// =========================
+// 3D
+// =========================
 function init3D() {
 
   scene = new THREE.Scene();
@@ -103,7 +98,6 @@ function init3D() {
 
     model.position.sub(center);
     model.position.y -= size.y * 0.35;
-
     model.scale.setScalar(2 / size.length());
 
     model.rotation.y = baseRotationY;
@@ -120,6 +114,9 @@ function animate() {
   renderer.render(scene, camera);
 }
 
+// =========================
+// ⭐ 修复左右方向
+// =========================
 function getAngles(lm) {
 
   const nose = lm[0];
@@ -131,10 +128,15 @@ function getAngles(lm) {
   return {
     pitch: -(nose.y - midY) * 6,
     roll: (rs.y - ls.y) * 6,
-    yaw: (nose.x - 0.5) * 6
+
+    // 👇 关键修复
+    yaw: -(nose.x - 0.5) * 6
   };
 }
 
+// =========================
+// 更新模型
+// =========================
 function updateModel({pitch, yaw, roll}) {
 
   if (!model) return;
@@ -154,6 +156,9 @@ function updateModel({pitch, yaw, roll}) {
   }
 }
 
+// =========================
+// MediaPipe
+// =========================
 function initPose() {
 
   const pose = new Pose({
@@ -179,6 +184,9 @@ function initPose() {
   }
 }
 
+// =========================
+// 启动
+// =========================
 (async () => {
   await startCamera();
   init3D();
