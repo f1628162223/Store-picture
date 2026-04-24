@@ -2,7 +2,7 @@
 <html lang="zh">
 <head>
 <meta charset="UTF-8" />
-<title>AI坐姿 + 正确视角修复版</title>
+<title>3D坐姿系统（X初始=-1）</title>
 
 <style>
   body {
@@ -27,7 +27,6 @@
     text-align: center;
     color: white;
     font-size: 18px;
-    z-index: 10;
   }
 </style>
 </head>
@@ -47,24 +46,29 @@ import { GLTFLoader } from 'https://esm.sh/three@0.158.0/examples/jsm/loaders/GL
 const video = document.getElementById("video");
 const statusEl = document.getElementById("status");
 
-let scene, camera, renderer;
-let model;
+let scene, camera, renderer, model;
 let pose;
 
+// ⭐ 基准Y旋转
 let baseRotationY = 4.7;
 
 // =========================
 // 摄像头
 // =========================
 async function startCamera() {
-  const stream = await navigator.mediaDevices.getUserMedia({ video: true });
+
+  const stream = await navigator.mediaDevices.getUserMedia({
+    video: true
+  });
+
   video.srcObject = stream;
+
   await new Promise(r => video.onloadedmetadata = r);
   await video.play();
 }
 
 // =========================
-// 3D初始化（关键修复点都在这里）
+// 3D初始化
 // =========================
 function init3D() {
 
@@ -77,11 +81,8 @@ function init3D() {
     1000
   );
 
-  // ⭐ 修复1：避免俯视
-  camera.position.set(0, 0.05, 2.2);
-
-  // ⭐ 修复2：对准“脸高度”，不是模型中心
-  camera.lookAt(0, 0.1, 0);
+  camera.position.set(0, 0.15, 2.2);
+  camera.lookAt(0, 0.15, 0);
 
   renderer = new THREE.WebGLRenderer({
     antialias: true,
@@ -91,7 +92,6 @@ function init3D() {
   renderer.setSize(window.innerWidth, window.innerHeight);
   document.body.appendChild(renderer.domElement);
 
-  // 光照
   scene.add(new THREE.DirectionalLight(0xffffff, 1));
   scene.add(new THREE.AmbientLight(0xffffff, 0.6));
 
@@ -102,26 +102,22 @@ function init3D() {
     model = gltf.scene;
     scene.add(model);
 
-    // =========================
-    // ⭐ 关键修复：脸部对齐
-    // =========================
     const box = new THREE.Box3().setFromObject(model);
     const size = box.getSize(new THREE.Vector3());
     const center = box.getCenter(new THREE.Vector3());
 
-    // 1️⃣ 居中
     model.position.sub(center);
+    model.position.y -= size.y * 0.35;
 
-    // 2️⃣ ⭐关键：把“脸”从头顶拉下来
-    model.position.y -= size.y * 0.28;
-
-    // 缩放
     model.scale.setScalar(2 / size.length());
 
-    // ⭐ 初始角度
+    // =========================
+    // ⭐ 初始旋转（重点修改）
+    // =========================
+    model.rotation.x = -1;       // 👈 你新增的
     model.rotation.y = baseRotationY;
 
-    statusEl.innerText = "✔ 模型加载成功（已修复视角）";
+    statusEl.innerText = "✔ 模型加载成功";
   });
 
   animate();
@@ -132,10 +128,6 @@ function init3D() {
 // =========================
 function animate() {
   requestAnimationFrame(animate);
-
-  // ⭐ 强制对准脸区域
-  camera.lookAt(0, 0.1, 0);
-
   renderer.render(scene, camera);
 }
 
@@ -166,8 +158,11 @@ function updateModel({pitch, yaw, roll}) {
 
   const limit = 1.2;
 
-  model.rotation.x = -Math.max(-limit, Math.min(limit, pitch));
+  // ⭐ 保持初始 -1 + 姿态叠加
+  model.rotation.x = -1 + (-Math.max(-limit, Math.min(limit, pitch)));
+
   model.rotation.y = baseRotationY + Math.max(-limit, Math.min(limit, yaw));
+
   model.rotation.z = Math.max(-limit, Math.min(limit, roll));
 
   if (Math.abs(pitch) > 0.6) {
@@ -184,7 +179,7 @@ function updateModel({pitch, yaw, roll}) {
 // =========================
 function initPose() {
 
-  pose = new Pose({
+  const pose = new Pose({
     locateFile: f =>
       `https://cdn.jsdelivr.net/npm/@mediapipe/pose/${f}`
   });
@@ -195,9 +190,7 @@ function initPose() {
   });
 
   pose.onResults(res => {
-
     if (!res.poseLandmarks) return;
-
     updateModel(getAngles(res.poseLandmarks));
   });
 
