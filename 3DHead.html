@@ -2,7 +2,7 @@
 <html lang="zh">
 <head>
 <meta charset="UTF-8" />
-<title>3D坐姿检测系统</title>
+<title>AI坐姿 + 3D反馈系统</title>
 
 <style>
   body {
@@ -11,7 +11,7 @@
     background: black;
   }
 
-  /* ✔ 不显示人脸 */
+  /* 不显示人脸 */
   video {
     position: absolute;
     width: 100vw;
@@ -38,29 +38,22 @@
 <video id="video" autoplay playsinline></video>
 <div id="status">初始化中...</div>
 
-<!-- MediaPipe -->
 <script src="https://cdn.jsdelivr.net/npm/@mediapipe/pose/pose.js"></script>
 
-<!-- Three.js -->
 <script type="module">
 
 import * as THREE from 'https://esm.sh/three@0.158.0';
 import { GLTFLoader } from 'https://esm.sh/three@0.158.0/examples/jsm/loaders/GLTFLoader.js';
 
-// =====================
-// DOM
-// =====================
 const video = document.getElementById("video");
 const statusEl = document.getElementById("status");
 
-// =====================
-// 全局变量
-// =====================
-let scene, camera, renderer, model;
+let scene, camera, renderer;
+let model;      // pivot（控制层）
 let pose;
 
 // =====================
-// 摄像头（隐藏）
+// 摄像头
 // =====================
 async function startCamera() {
 
@@ -69,7 +62,6 @@ async function startCamera() {
   });
 
   video.srcObject = stream;
-
   await new Promise(r => video.onloadedmetadata = r);
   await video.play();
 }
@@ -83,7 +75,7 @@ function init3D() {
 
   camera = new THREE.PerspectiveCamera(
     60,
-    window.innerWidth / window.innerHeight,
+    innerWidth / innerHeight,
     0.1,
     1000
   );
@@ -91,7 +83,7 @@ function init3D() {
   camera.position.set(0, 0, 2);
 
   renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
-  renderer.setSize(window.innerWidth, window.innerHeight);
+  renderer.setSize(innerWidth, innerHeight);
   document.body.appendChild(renderer.domElement);
 
   // 光
@@ -99,38 +91,40 @@ function init3D() {
   scene.add(new THREE.AmbientLight(0xffffff, 0.6));
 
   // =====================
-  // 加载模型
+  // GLB加载
   // =====================
   const loader = new GLTFLoader();
 
   loader.load('./puppycat_head.glb', (gltf) => {
 
-    model = gltf.scene;
-    scene.add(model);
+    const raw = gltf.scene;
+
+    // ⭐ pivot（控制层）
+    const pivot = new THREE.Group();
+    scene.add(pivot);
+    pivot.add(raw);
+
+    model = pivot;
 
     // =====================
-    // ✔ 自动居中 + 缩放
+    // 自动居中 + 缩放
     // =====================
-    const box = new THREE.Box3().setFromObject(model);
+    const box = new THREE.Box3().setFromObject(raw);
     const size = box.getSize(new THREE.Vector3()).length();
     const center = box.getCenter(new THREE.Vector3());
 
-    model.position.sub(center);
+    raw.position.sub(center);
 
     const scale = 2 / size;
-    model.scale.setScalar(scale);
+    raw.scale.setScalar(scale);
 
     // =====================
-    // ⭐ 关键：修正模型朝向
-    // （解决你“朝右”的问题）
+    // ⭐ 修正模型朝向（关键）
     // =====================
-    model.rotation.y = Math.PI;
+    pivot.rotation.y = Math.PI / 2;
 
-    statusEl.innerText = "✔ 模型加载完成";
+    statusEl.innerText = "✔ 模型加载成功";
 
-  }, undefined, (err) => {
-    console.error(err);
-    statusEl.innerText = "❌ 加载失败";
   });
 
   animate();
@@ -171,7 +165,7 @@ function getAngles(lm) {
 }
 
 // =====================
-// 驱动模型
+// 驱动3D模型
 // =====================
 function updateModel({pitch, yaw, roll}) {
 
@@ -183,12 +177,10 @@ function updateModel({pitch, yaw, roll}) {
   yaw   = Math.max(-limit, Math.min(limit, yaw));
   roll  = Math.max(-limit, Math.min(limit, roll));
 
-  // ✔ 关键映射
   model.rotation.x = -pitch;
   model.rotation.y = yaw;
   model.rotation.z = roll;
 
-  // ✔ 状态提示
   if (Math.abs(pitch) > 0.6) {
     statusEl.innerText = "⚠ 低头过多";
   } else if (Math.abs(roll) > 0.6) {
@@ -203,7 +195,7 @@ function updateModel({pitch, yaw, roll}) {
 // =====================
 function initPose() {
 
-  pose = new Pose({
+  const pose = new Pose({
     locateFile: f =>
       `https://cdn.jsdelivr.net/npm/@mediapipe/pose/${f}`
   });
@@ -217,28 +209,28 @@ function initPose() {
 
     if (!res.poseLandmarks) return;
 
-    const angles = getAngles(res.poseLandmarks);
+    const lm = res.poseLandmarks;
+
+    const angles = getAngles(lm);
 
     updateModel(angles);
   });
 
   loop();
-}
 
-async function loop() {
-  await pose.send({ image: video });
-  requestAnimationFrame(loop);
+  async function loop() {
+    await pose.send({ image: video });
+    requestAnimationFrame(loop);
+  }
 }
 
 // =====================
 // 启动
 // =====================
 (async () => {
-
   await startCamera();
   init3D();
   initPose();
-
 })();
 
 </script>
