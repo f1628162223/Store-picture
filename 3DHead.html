@@ -2,7 +2,7 @@
 <html lang="zh">
 <head>
 <meta charset="UTF-8" />
-<title>3D坐姿系统（方向修正+UI增强）</title>
+<title>3D坐姿系统（方向+起始完全修复）</title>
 
 <style>
   body {
@@ -16,14 +16,10 @@
     width: 100vw;
     height: 100vh;
     object-fit: cover;
-
-    /* ⭐ 开启镜像（推荐） */
-    transform: scaleX(-1);
-
+    transform: scaleX(-1); /* ⭐ 镜像 */
     opacity: 0;
   }
 
-  /* ⭐ UI放大 */
   #status {
     position: absolute;
     bottom: 40px;
@@ -55,7 +51,8 @@ const statusEl = document.getElementById("status");
 let scene, camera, renderer, model;
 let pose;
 
-let baseRotationY = 4.7;
+// ⭐ ⭐ ⭐ 关键：起始角度反向修正
+let baseRotationY = -4.7;
 
 // =========================
 // 摄像头
@@ -107,6 +104,7 @@ function init3D() {
 
     model.scale.setScalar(2 / size.length());
 
+    // ⭐ 初始姿态
     model.rotation.y = baseRotationY;
     model.rotation.x = -1;
 
@@ -125,7 +123,7 @@ function animate() {
 }
 
 // =========================
-// ⭐ 姿态计算（方向完全修复）
+// 姿态计算（已修复）
 // =========================
 function getAngles(lm) {
 
@@ -136,12 +134,8 @@ function getAngles(lm) {
   const midY = (ls.y + rs.y) / 2;
 
   return {
-    // ⭐ 上下正确
     pitch: (nose.y - midY) * 4,
-
-    // ⭐ 左右修正（关键）
     yaw: -(nose.x - 0.5) * 6,
-
     roll: (rs.y - ls.y) * 6
   };
 }
