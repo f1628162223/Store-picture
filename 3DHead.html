@@ -2,7 +2,7 @@
 <html lang="zh">
 <head>
 <meta charset="UTF-8" />
-<title>AI坐姿 + 自动朝向校准</title>
+<title>AI坐姿 + 自动朝向校准1</title>
 
 <style>
   body {
@@ -131,6 +131,9 @@ function init3D() {
     } else if (axis === "z") {
       raw.rotation.y = 0;
     }
+
+    // 180度旋转使脸面向摄像头
+    raw.rotation.y += Math.PI;
 
     statusEl.innerText = "✔ 模型加载完成（自动校准）";
 
