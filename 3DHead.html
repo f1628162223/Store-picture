@@ -2,7 +2,7 @@
 <html lang="zh">
 <head>
 <meta charset="UTF-8" />
-<title>3D头部替身系统</title>
+<title>3D头部替身（修复朝向版）</title>
 
 <style>
   body {
@@ -27,16 +27,19 @@
 
 <div id="status">初始化...</div>
 
+<!-- MediaPipe（必须script方式） -->
 <script src="https://cdn.jsdelivr.net/npm/@mediapipe/pose/pose.js"></script>
 
-<script type="module">
+<!-- Three.js（非module，避免冲突） -->
+<script src="https://cdn.jsdelivr.net/npm/three@0.158.0/build/three.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.158.0/examples/js/loaders/GLTFLoader.js"></script>
 
-import * as THREE from 'https://esm.sh/three@0.158.0';
-import { GLTFLoader } from 'https://esm.sh/three@0.158.0/examples/jsm/loaders/GLTFLoader.js';
+<script>
 
 const statusEl = document.getElementById("status");
 
-let scene, camera, renderer, model, pose;
+let scene, camera, renderer, model;
+let pose;
 let video;
 
 // ==========================
@@ -56,7 +59,7 @@ async function initCamera() {
 }
 
 // ==========================
-// 3D初始化（模型居中）
+// Three.js 初始化
 // ==========================
 function init3D() {
 
@@ -64,7 +67,7 @@ function init3D() {
 
   camera = new THREE.PerspectiveCamera(
     60,
-    innerWidth / innerHeight,
+    window.innerWidth / window.innerHeight,
     0.1,
     1000
   );
@@ -76,36 +79,44 @@ function init3D() {
     alpha: true
   });
 
-  renderer.setSize(innerWidth, innerHeight);
+  renderer.setSize(window.innerWidth, window.innerHeight);
   document.body.appendChild(renderer.domElement);
 
-  // 光
+  // ===== 光 =====
   scene.add(new THREE.AmbientLight(0xffffff, 2));
+
   const light = new THREE.DirectionalLight(0xffffff, 2);
   light.position.set(2, 2, 2);
   scene.add(light);
 
-  // 模型
-  const loader = new GLTFLoader();
+  // ==========================
+  // 加载模型
+  // ==========================
+  const loader = new THREE.GLTFLoader();
 
   loader.load("./puppycat_head.glb", (gltf) => {
 
     model = gltf.scene;
     scene.add(model);
 
-    // =====================
-    // ⭐ 强制居中 + 放大
-    // =====================
+    console.log("✔ 模型加载成功");
+
+    // ==========================
+    // ⭐ 自动居中 + 缩放
+    // ==========================
     const box = new THREE.Box3().setFromObject(model);
-    const center = box.getCenter(new THREE.Vector3());
     const size = box.getSize(new THREE.Vector3()).length();
+    const center = box.getCenter(new THREE.Vector3());
 
     model.position.sub(center);
 
     const scale = 2.5 / size;
     model.scale.setScalar(scale);
 
-    model.position.y = 0;
+    // ==========================
+    // ⭐ 关键：正对用户（修复背面问题）
+    // ==========================
+    model.rotation.y = Math.PI;
 
     statusEl.innerText = "✔ 模型已就位";
   });
@@ -132,7 +143,7 @@ function getPose(lm) {
 }
 
 // ==========================
-// 驱动模型（核心）
+// 驱动模型（核心修复）
 // ==========================
 function updateModel({ pitch, roll, yaw }) {
 
@@ -144,16 +155,20 @@ function updateModel({ pitch, roll, yaw }) {
   roll  = Math.max(-limit, Math.min(limit, roll));
   yaw   = Math.max(-limit, Math.min(limit, yaw));
 
-  model.rotation.x = -pitch;
-  model.rotation.y = yaw;
-  model.rotation.z = roll;
+  // ==========================
+  // ⭐ 修复方向（关键）
+  // ==========================
+
+  model.rotation.x = pitch;          // 低头/抬头
+  model.rotation.y = -yaw + Math.PI; // 左右 + 正对用户
+  model.rotation.z = roll;           // 歪头
 
   if (Math.abs(pitch) > 0.6) {
-    statusEl.innerText = "⚠ 低头";
+    statusEl.innerText = "⚠ 低头过多";
   } else if (Math.abs(roll) > 0.6) {
-    statusEl.innerText = "⚠ 歪头";
+    statusEl.innerText = "⚠ 头部歪斜";
   } else {
-    statusEl.innerText = "✔ 正常";
+    statusEl.innerText = "✔ 姿势正常";
   }
 }
 
@@ -163,8 +178,8 @@ function updateModel({ pitch, roll, yaw }) {
 function initPose() {
 
   pose = new window.Pose({
-    locateFile: (f) =>
-      `https://cdn.jsdelivr.net/npm/@mediapipe/pose/${f}`
+    locateFile: (file) =>
+      `https://cdn.jsdelivr.net/npm/@mediapipe/pose/${file}`
   });
 
   pose.setOptions({
@@ -190,7 +205,7 @@ async function loop() {
 }
 
 // ==========================
-// 渲染
+// 渲染循环
 // ==========================
 function animate() {
   requestAnimationFrame(animate);
