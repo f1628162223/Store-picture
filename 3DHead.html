@@ -2,7 +2,7 @@
 <html lang="zh">
 <head>
 <meta charset="UTF-8" />
-<title>3D坐姿系统（方向+起始完全修复）</title>
+<title>3D坐姿系统</title>
 
 <style>
   body {
@@ -16,17 +16,18 @@
     width: 100vw;
     height: 100vh;
     object-fit: cover;
-    transform: scaleX(-1); /* ⭐ 镜像 */
+    transform: scaleX(1);
     opacity: 0;
   }
 
+  /* ⭐ 放大警告文字 */
   #status {
     position: absolute;
     bottom: 40px;
     width: 100%;
     text-align: center;
     color: red;
-    font-size: 42px;
+    font-size: 48px;
     font-weight: bold;
     text-shadow: 0 0 10px black;
   }
@@ -51,8 +52,7 @@ const statusEl = document.getElementById("status");
 let scene, camera, renderer, model;
 let pose;
 
-// ⭐ ⭐ ⭐ 关键：起始角度反向修正
-let baseRotationY = -4.7;
+let baseRotationY = 4.7;
 
 // =========================
 // 摄像头
@@ -104,7 +104,6 @@ function init3D() {
 
     model.scale.setScalar(2 / size.length());
 
-    // ⭐ 初始姿态
     model.rotation.y = baseRotationY;
     model.rotation.x = -1;
 
@@ -123,7 +122,7 @@ function animate() {
 }
 
 // =========================
-// 姿态计算（已修复）
+// ⭐ 修复方向
 // =========================
 function getAngles(lm) {
 
@@ -134,9 +133,9 @@ function getAngles(lm) {
   const midY = (ls.y + rs.y) / 2;
 
   return {
-    pitch: (nose.y - midY) * 4,
-    yaw: -(nose.x - 0.5) * 6,
-    roll: (rs.y - ls.y) * 6
+    pitch: (nose.y - midY) * 6,       // ✔ 上下修正
+    roll: (rs.y - ls.y) * 6,
+    yaw: -(nose.x - 0.5) * 6          // ✔ 左右修正
   };
 }
 
@@ -153,7 +152,7 @@ function updateModel({pitch, yaw, roll}) {
   model.rotation.y = baseRotationY + Math.max(-limit, Math.min(limit, yaw));
   model.rotation.z = Math.max(-limit, Math.min(limit, roll));
 
-  if (pitch > 0.6) {
+  if (Math.abs(pitch) > 0.6) {
     statusEl.innerText = "⚠ 低头过多";
   } else if (Math.abs(roll) > 0.6) {
     statusEl.innerText = "⚠ 身体歪斜";
