@@ -2,7 +2,7 @@
 <html lang="zh">
 <head>
 <meta charset="UTF-8" />
-<title>AI坐姿 + 自动朝向校准1</title>
+<title>AI坐姿 + 正确视角</title>
 
 <style>
   body {
@@ -47,9 +47,8 @@ const video = document.getElementById("video");
 const statusEl = document.getElementById("status");
 
 let scene, camera, renderer;
-let model; // pivot
-let pose;
-let baseRotationY = 0; // 保存基础旋转角度
+let model;
+let baseRotationY = 0;
 
 // =========================
 // 摄像头
@@ -62,7 +61,7 @@ async function startCamera() {
 }
 
 // =========================
-// Three.js初始化
+// 3D初始化（关键修复在这里）
 // =========================
 function init3D() {
 
@@ -75,7 +74,11 @@ function init3D() {
     1000
   );
 
-  camera.position.set(0, 0, 2);
+  // ⭐ 关键修复1：正确相机位置（不要偏上）
+  camera.position.set(0, 0, 2.2);
+
+  // ⭐ 关键修复2：必须lookAt中心
+  camera.lookAt(0, 0, 0);
 
   renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
   renderer.setSize(innerWidth, innerHeight);
@@ -84,23 +87,20 @@ function init3D() {
   scene.add(new THREE.DirectionalLight(0xffffff, 1));
   scene.add(new THREE.AmbientLight(0xffffff, 0.6));
 
-  // =========================
-  // 加载模型
-  // =========================
   const loader = new GLTFLoader();
 
   loader.load('./puppycat_head.glb', (gltf) => {
 
     const raw = gltf.scene;
 
-    // pivot控制层
     const pivot = new THREE.Group();
     scene.add(pivot);
     pivot.add(raw);
+
     model = pivot;
 
     // =========================
-    // 自动居中
+    // 自动居中 + 缩放
     // =========================
     const box = new THREE.Box3().setFromObject(raw);
     const center = box.getCenter(new THREE.Vector3());
@@ -110,33 +110,12 @@ function init3D() {
     raw.scale.setScalar(2 / size);
 
     // =========================
-    // ⭐ 自动识别正脸方向（核心）
+    // 修正模型方向（保留你原逻辑）
     // =========================
-    const helper = new THREE.Box3Helper(box, 0xffff00);
-    scene.add(helper);
-
-    // 用bounding box判断“长轴方向”
-    const sizeVec = box.getSize(new THREE.Vector3());
-
-    let axis = "z";
-
-    if (sizeVec.x > sizeVec.z && sizeVec.x > sizeVec.y) {
-      axis = "x";
-    } else if (sizeVec.z > sizeVec.x && sizeVec.z > sizeVec.y) {
-      axis = "z";
-    }
-
-    // ✔ 自动对齐正脸 - 在 pivot 上旋转，不影响 raw
-    if (axis === "x") {
-      // X轴为长轴，需要旋转 90度 + 180度使脸朝向摄像头
-      baseRotationY = Math.PI / 2 + Math.PI;
-    } else if (axis === "z") {
-      // Z轴为长轴，需要旋转 180度使脸朝向摄像头
-      baseRotationY = Math.PI;
-    }
+    baseRotationY = Math.PI;
     model.rotation.y = baseRotationY;
 
-    statusEl.innerText = "✔ 模型加载完成（自动校准）";
+    statusEl.innerText = "✔ 模型加载完成（视角已修复）";
 
   });
 
@@ -148,6 +127,10 @@ function init3D() {
 // =========================
 function animate() {
   requestAnimationFrame(animate);
+
+  // ⭐ 关键修复3：持续锁定lookAt
+  camera.lookAt(0, 0, 0);
+
   renderer.render(scene, camera);
 }
 
@@ -162,11 +145,11 @@ function getAngles(lm) {
 
   const midY = (ls.y + rs.y) / 2;
 
-  const pitch = (nose.y - midY) * 6;
-  const roll  = (rs.y - ls.y) * 6;
-  const yaw   = (0.5 - nose.x) * 6;
-
-  return { pitch, yaw, roll };
+  return {
+    pitch: (nose.y - midY) * 6,
+    roll: (rs.y - ls.y) * 6,
+    yaw: (0.5 - nose.x) * 6
+  };
 }
 
 // =========================
@@ -207,12 +190,8 @@ function initPose() {
   });
 
   pose.onResults(res => {
-
     if (!res.poseLandmarks) return;
-
-    const angles = getAngles(res.poseLandmarks);
-
-    updateModel(angles);
+    updateModel(getAngles(res.poseLandmarks));
   });
 
   loop();
