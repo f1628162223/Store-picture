@@ -2,7 +2,7 @@
 <html lang="zh">
 <head>
 <meta charset="UTF-8" />
-<title>AI坐姿 + 正确视角版</title>
+<title>AI坐姿 + 坐标统一修复版</title>
 
 <style>
   body {
@@ -11,12 +11,13 @@
     background: black;
   }
 
+  /* ❗关键：不要镜像视频（避免坐标错乱） */
   video {
     position: absolute;
     width: 100vw;
     height: 100vh;
     object-fit: cover;
-    transform: scaleX(-1);
+    transform: scaleX(1);
     opacity: 0;
   }
 
@@ -53,17 +54,22 @@ let pose;
 let baseRotationY = 0;
 
 // =========================
-// 摄像头
+// 摄像头（不镜像！关键）
 // =========================
 async function startCamera() {
-  const stream = await navigator.mediaDevices.getUserMedia({ video: true });
+
+  const stream = await navigator.mediaDevices.getUserMedia({
+    video: true
+  });
+
   video.srcObject = stream;
+
   await new Promise(r => video.onloadedmetadata = r);
   await video.play();
 }
 
 // =========================
-// 3D初始化（关键修复全部在这里）
+// 3D初始化
 // =========================
 function init3D() {
 
@@ -76,19 +82,24 @@ function init3D() {
     1000
   );
 
-  // ⭐ 关键修复1：避免俯视
+  // ⭐ 稳定视角（不俯视）
   camera.position.set(0, 0.15, 2.2);
-
-  // ⭐ 关键修复2：稳定对准“脸部区域”
   camera.lookAt(0, 0.15, 0);
 
-  renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+  renderer = new THREE.WebGLRenderer({
+    antialias: true,
+    alpha: true
+  });
+
   renderer.setSize(innerWidth, innerHeight);
   document.body.appendChild(renderer.domElement);
 
   scene.add(new THREE.DirectionalLight(0xffffff, 1));
   scene.add(new THREE.AmbientLight(0xffffff, 0.6));
 
+  // =========================
+  // 加载模型
+  // =========================
   const loader = new GLTFLoader();
 
   loader.load('./puppycat_head.glb', (gltf) => {
@@ -102,27 +113,26 @@ function init3D() {
     model = pivot;
 
     // =========================
-    // ⭐ 正确修复：不要只用中心点
+    // 居中 + 修正脸位置
     // =========================
     const box = new THREE.Box3().setFromObject(raw);
     const size = box.getSize(new THREE.Vector3());
-
     const center = box.getCenter(new THREE.Vector3());
+
     raw.position.sub(center);
 
-    // ⭐ 关键：向下移动，让“脸”进入视野中心
+    // ⭐ 把脸移到视觉中心（关键）
     raw.position.y -= size.y * 0.35;
 
-    // 缩放
     raw.scale.setScalar(2 / size.length());
 
     // =========================
-    // ⭐ 固定朝向（不要再自动猜）
+    // 固定方向
     // =========================
     baseRotationY = Math.PI;
     model.rotation.y = baseRotationY;
 
-    statusEl.innerText = "✔ 模型加载成功（视角已修复）";
+    statusEl.innerText = "✔ 模型加载完成";
 
   });
 
@@ -130,19 +140,16 @@ function init3D() {
 }
 
 // =========================
-// 渲染
+// 渲染循环
 // =========================
 function animate() {
   requestAnimationFrame(animate);
-
-  // ⭐ 强制稳定视角
   camera.lookAt(0, 0.15, 0);
-
   renderer.render(scene, camera);
 }
 
 // =========================
-// 姿态
+// 姿态计算（关键修复 yaw）
 // =========================
 function getAngles(lm) {
 
@@ -155,7 +162,9 @@ function getAngles(lm) {
   return {
     pitch: (nose.y - midY) * 6,
     roll: (rs.y - ls.y) * 6,
-    yaw: (0.5 - nose.x) * 6
+
+    // ⭐ 修复点：不再反向
+    yaw: (nose.x - 0.5) * 6
   };
 }
 
