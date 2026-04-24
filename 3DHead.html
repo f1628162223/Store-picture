@@ -2,7 +2,7 @@
 <html lang="zh">
 <head>
 <meta charset="UTF-8" />
-<title>AI坐姿系统（稳定优化版）</title>
+<title>3D坐姿系统（修正上下方向）</title>
 
 <style>
   body {
@@ -20,17 +20,13 @@
     opacity: 0;
   }
 
-  /* ✅ 问题1：提示放大 */
   #status {
     position: absolute;
-    bottom: 40px;
+    bottom: 20px;
     width: 100%;
     text-align: center;
-    color: red;
-    font-size: 42px; /* 👈 放大 */
-    font-weight: bold;
-    z-index: 10;
-    text-shadow: 0 0 10px black;
+    color: white;
+    font-size: 18px;
   }
 </style>
 </head>
@@ -56,27 +52,17 @@ let pose;
 let baseRotationY = 4.7;
 
 // =========================
-// ❗报警稳定器（解决问题3）
-// =========================
-let badFrameCount = 0;
-
-// =========================
 // 摄像头
 // =========================
 async function startCamera() {
-
-  const stream = await navigator.mediaDevices.getUserMedia({
-    video: true
-  });
-
+  const stream = await navigator.mediaDevices.getUserMedia({ video: true });
   video.srcObject = stream;
-
   await new Promise(r => video.onloadedmetadata = r);
   await video.play();
 }
 
 // =========================
-// 3D
+// 3D初始化
 // =========================
 function init3D() {
 
@@ -133,7 +119,7 @@ function animate() {
 }
 
 // =========================
-// 姿态（优化：减少上下灵敏度）
+// 姿态计算（关键修复点）
 // =========================
 function getAngles(lm) {
 
@@ -144,8 +130,8 @@ function getAngles(lm) {
   const midY = (ls.y + rs.y) / 2;
 
   return {
-    // ✅ 问题2修复：弱化上下驱动
-    pitch: -(nose.y - midY) * 3,  // 👈 从6降到3（关键）
+    // ⭐ 修复：上下方向反转
+    pitch: -(nose.y - midY) * 6,
 
     roll: (rs.y - ls.y) * 6,
     yaw: (nose.x - 0.5) * 6
@@ -153,40 +139,25 @@ function getAngles(lm) {
 }
 
 // =========================
-// 模型更新 + 报警逻辑优化
+// 更新模型
 // =========================
 function updateModel({pitch, yaw, roll}) {
 
   if (!model) return;
 
-  const limit = 1.0;
+  const limit = 1.2;
 
-  // =========================
-  // 模型运动（上下更柔和）
-  // =========================
-  model.rotation.x =
-    -1 + Math.max(-limit, Math.min(limit, pitch));
+  // ⭐ 现在方向正确了
+  model.rotation.x = -1 + Math.max(-limit, Math.min(limit, pitch));
 
-  model.rotation.y =
-    baseRotationY + Math.max(-limit, Math.min(limit, yaw));
+  model.rotation.y = baseRotationY + Math.max(-limit, Math.min(limit, yaw));
 
-  model.rotation.z =
-    Math.max(-limit, Math.min(limit, roll));
+  model.rotation.z = Math.max(-limit, Math.min(limit, roll));
 
-  // =========================
-  // ❗问题3：防抖报警（核心修复）
-  // =========================
-  const isBad = pitch > 0.6; // 低头
-
-  if (isBad) {
-    badFrameCount++;
-  } else {
-    badFrameCount = 0;
-  }
-
-  // 连续超过 10 帧才报警
-  if (badFrameCount > 10) {
+  if (Math.abs(pitch) > 0.6) {
     statusEl.innerText = "⚠ 低头过多";
+  } else if (Math.abs(roll) > 0.6) {
+    statusEl.innerText = "⚠ 身体歪斜";
   } else {
     statusEl.innerText = "✔ 姿势良好";
   }
