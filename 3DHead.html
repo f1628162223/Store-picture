@@ -20,16 +20,24 @@
     opacity: 0;
   }
 
-  /* ⭐ 放大警告文字 */
+  /* ⭐ UI优化（重点） */
   #status {
     position: absolute;
-    bottom: 40px;
+    bottom: 5vh;
     width: 100%;
     text-align: center;
-    color: red;
-    font-size: 48px;
+
+    /* 👇 核心改动 */
+    font-size: 5vh;             /* 自适应大小 */
     font-weight: bold;
-    text-shadow: 0 0 10px black;
+    color: red;
+
+    /* 👇 可读性增强 */
+    text-shadow: 
+      0 0 10px black,
+      0 0 20px black;
+
+    z-index: 10;
   }
 </style>
 </head>
@@ -54,9 +62,6 @@ let pose;
 
 let baseRotationY = 4.7;
 
-// =========================
-// 摄像头
-// =========================
 async function startCamera() {
   const stream = await navigator.mediaDevices.getUserMedia({ video: true });
   video.srcObject = stream;
@@ -64,9 +69,6 @@ async function startCamera() {
   await video.play();
 }
 
-// =========================
-// 3D初始化
-// =========================
 function init3D() {
 
   scene = new THREE.Scene();
@@ -113,17 +115,11 @@ function init3D() {
   animate();
 }
 
-// =========================
-// 渲染
-// =========================
 function animate() {
   requestAnimationFrame(animate);
   renderer.render(scene, camera);
 }
 
-// =========================
-// ⭐ 修复方向
-// =========================
 function getAngles(lm) {
 
   const nose = lm[0];
@@ -133,15 +129,12 @@ function getAngles(lm) {
   const midY = (ls.y + rs.y) / 2;
 
   return {
-    pitch: (nose.y - midY) * 6,       // ✔ 上下修正
+    pitch: -(nose.y - midY) * 6,
     roll: (rs.y - ls.y) * 6,
-    yaw: -(nose.x - 0.5) * 6          // ✔ 左右修正
+    yaw: (nose.x - 0.5) * 6
   };
 }
 
-// =========================
-// 更新模型
-// =========================
 function updateModel({pitch, yaw, roll}) {
 
   if (!model) return;
@@ -161,9 +154,6 @@ function updateModel({pitch, yaw, roll}) {
   }
 }
 
-// =========================
-// MediaPipe
-// =========================
 function initPose() {
 
   const pose = new Pose({
@@ -189,9 +179,6 @@ function initPose() {
   }
 }
 
-// =========================
-// 启动
-// =========================
 (async () => {
   await startCamera();
   init3D();
