@@ -2,7 +2,7 @@
 <html lang="zh">
 <head>
 <meta charset="UTF-8" />
-<title>AI坐姿 + 自动朝向校准</title>
+<title>AI坐姿 + 自动朝向校准1</title>
 
 <style>
   body {
@@ -49,6 +49,7 @@ const statusEl = document.getElementById("status");
 let scene, camera, renderer;
 let model; // pivot
 let pose;
+let baseRotationY = 0; // 保存基础旋转角度
 
 // =========================
 // 摄像头
@@ -128,11 +129,12 @@ function init3D() {
     // ✔ 自动对齐正脸 - 在 pivot 上旋转，不影响 raw
     if (axis === "x") {
       // X轴为长轴，需要旋转 90度 + 180度使脸朝向摄像头
-      model.rotation.y = Math.PI / 2 + Math.PI;
+      baseRotationY = Math.PI / 2 + Math.PI;
     } else if (axis === "z") {
       // Z轴为长轴，需要旋转 180度使脸朝向摄像头
-      model.rotation.y = Math.PI;
+      baseRotationY = Math.PI;
     }
+    model.rotation.y = baseRotationY;
 
     statusEl.innerText = "✔ 模型加载完成（自动校准）";
 
@@ -177,7 +179,7 @@ function updateModel({pitch, yaw, roll}) {
   const limit = 1.2;
 
   model.rotation.x = -Math.max(-limit, Math.min(limit, pitch));
-  model.rotation.y = Math.max(-limit, Math.min(limit, yaw));
+  model.rotation.y = baseRotationY + Math.max(-limit, Math.min(limit, yaw));
   model.rotation.z = Math.max(-limit, Math.min(limit, roll));
 
   if (Math.abs(pitch) > 0.6) {
