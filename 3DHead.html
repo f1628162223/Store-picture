@@ -2,7 +2,7 @@
 <html lang="zh">
 <head>
 <meta charset="UTF-8" />
-<title>3D坐姿系统（左右修正）</title>
+<title>3D坐姿系统（上下修正）</title>
 
 <style>
   body {
@@ -16,7 +16,7 @@
     width: 100vw;
     height: 100vh;
     object-fit: cover;
-    transform: scaleX(1); /* 不镜像 */
+    transform: scaleX(1);
     opacity: 0;
   }
 
@@ -115,7 +115,7 @@ function animate() {
 }
 
 // =========================
-// ⭐ 修复左右方向
+// ⭐ 修复上下方向（关键）
 // =========================
 function getAngles(lm) {
 
@@ -126,10 +126,10 @@ function getAngles(lm) {
   const midY = (ls.y + rs.y) / 2;
 
   return {
-    pitch: -(nose.y - midY) * 6,
-    roll: (rs.y - ls.y) * 6,
+    // ✅ 改这里（去掉负号）
+    pitch: (nose.y - midY) * 6,
 
-    // 👇 关键修复
+    roll: (rs.y - ls.y) * 6,
     yaw: -(nose.x - 0.5) * 6
   };
 }
@@ -147,7 +147,7 @@ function updateModel({pitch, yaw, roll}) {
   model.rotation.y = baseRotationY + Math.max(-limit, Math.min(limit, yaw));
   model.rotation.z = Math.max(-limit, Math.min(limit, roll));
 
-  if (Math.abs(pitch) > 0.6) {
+  if (pitch > 0.6) {
     statusEl.innerText = "⚠ 低头过多";
   } else if (Math.abs(roll) > 0.6) {
     statusEl.innerText = "⚠ 身体歪斜";
